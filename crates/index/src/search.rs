@@ -126,38 +126,37 @@ impl Searcher {
         Some(column.values.get(entry)?.as_deref())
     }
 
-    /// This searcher with one field of one entry replaced, so an edit costs the
-    /// text of the entry rather than the text of the library.
-    pub fn replace_field(&self, entry: usize, name: &str, text: &str) -> Option<Self> {
-        let at = self
-            .columns
-            .iter()
-            .position(|c| matches!(c.field, FieldRef::Named(_)) && c.name == name)?;
+    /// Replaces one field of one entry, so an edit costs that field of that entry
+    /// rather than the text of the library: the column keeps its postings for every
+    /// other row and replaces the one row's.
+    pub fn replace_field(&mut self, entry: usize, name: &str, text: &str) {
         let folded = fold(text);
-        let mut columns = self.columns[..at].to_vec();
-        let mut column = self.columns[at].clone();
-        *column.values.get_mut(entry)? = Some(folded);
-        column.reindex(entry);
-        columns.push(column);
-        columns.extend_from_slice(&self.columns[at + 1..]);
-        Some(Self {
-            columns,
-            fold_key: self.fold_key,
-        })
+        if let Some(column) = self
+            .columns
+            .iter_mut()
+            .find(|column| matches!(column.field, FieldRef::Named(_)) && column.name == name)
+        {
+            column.replace(entry, folded);
+        }
     }
 
     /// Every entry that holds all of the query's terms; an exact matcher keeps
     /// only the entry whose key is the query, and a key lookup ignores the
     /// configured fields, as a citation key is always searchable.
     pub fn search(&self, matcher: &Matcher, limit: Option<usize>) -> SearchResult {
-        let rows = if matcher.is_exact() {
+        let rows = self.search_rows(matcher);
+        finish(rows, limit)
+    }
+
+    /// The rows a matcher picks out, whichever way it picks them.
+    fn search_rows(&self, matcher: &Matcher) -> Vec<u32> {
+        if matcher.is_exact() {
             self.exact_rows(matcher)
         } else if matcher.is_empty() {
             (0..self.row_count()).map(|row| row as u32).collect()
         } else {
             self.matching_rows(matcher).unwrap_or_default()
-        };
-        finish(rows, limit)
+        }
     }
 
     /// The rows holding every term, narrowed by the rarest term first. A query costs
@@ -317,6 +316,17 @@ impl Searcher {
             .collect()
     }
 
+    /// Lays out what edits after the last query left for later: the gram and solo
+    /// tables, which name a word rather than a row and are built again rather than
+    /// patched. A window calls this once a run of edits is over.
+    pub fn settle(&mut self) {
+        for column in &mut self.columns {
+            if !column.inverted.is_laid_out() {
+                column.inverted.relaid();
+            }
+        }
+    }
+
     /// How many rows the index covers.
     fn row_count(&self) -> usize {
         self.columns.first().map_or(0, |c| c.values.len())
@@ -334,9 +344,16 @@ impl Column {
         }
     }
 
-    /// Re-indexes one row, since the rest of the column did not change.
-    fn reindex(&mut self, entry: usize) {
-        self.inverted = self.inverted.with_row(entry, self.values[entry].as_deref());
+    /// Re-indexes one row, since the rest of the column did not change. The text the
+    /// row held is what the index is holding, so it is handed over rather than read
+    /// back out of the tables.
+    fn replace(&mut self, entry: usize, folded: String) {
+        let before = self
+            .values
+            .get_mut(entry)
+            .and_then(|slot| slot.replace(folded.clone()));
+        self.inverted
+            .replace_row(entry, before.as_deref(), Some(&folded));
     }
 }
 

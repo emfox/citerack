@@ -51,11 +51,9 @@ fn a_field_replaced_in_the_index_answers_like_a_library_indexed_again() {
     let after = parse_str(&text, &Default::default()).expect("the edited sample parses");
     let rebuilt = Searcher::build(&after, &SearchOptions::default());
 
-    let edited = indexed
-        .replace_field(1, "title", "The Other Book")
-        .expect("the title column is indexed")
-        .replace_field(1, "author", "Jones, Anna")
-        .expect("the author column is indexed");
+    let mut edited = indexed;
+    edited.replace_field(1, "title", "The Other Book");
+    edited.replace_field(1, "author", "Jones, Anna");
 
     for query in queries() {
         assert_eq!(
@@ -75,9 +73,8 @@ fn a_word_the_edit_removed_stops_matching() {
         "only the book had that word"
     );
 
-    let edited = indexed
-        .replace_field(1, "title", "The Other Book")
-        .expect("the title column is indexed");
+    let mut edited = indexed;
+    edited.replace_field(1, "title", "The Other Book");
     assert_eq!(hits(&edited, "another"), [] as [usize; 0]);
     assert_eq!(hits(&edited, "other"), [1]);
 }
@@ -107,9 +104,7 @@ fn the_field_names_are_listed_once_even_after_a_run_of_edits() {
     // themselves rather than by the column beside them.
     let mut indexed = Searcher::build(&library(), &SearchOptions::default());
     for name in ["title", "author", "year", "title", "year"] {
-        indexed = indexed
-            .replace_field(0, name, "Smith, John")
-            .expect("the column is indexed");
+        indexed.replace_field(0, name, "Smith, John");
     }
     let names = indexed.field_names();
     assert_eq!(names, ["author", "title", "year"], "one entry per field");
@@ -117,7 +112,12 @@ fn the_field_names_are_listed_once_even_after_a_run_of_edits() {
 
 #[test]
 fn replacing_a_field_the_index_does_not_cover_changes_nothing() {
-    let indexed = Searcher::build(&library(), &SearchOptions::default());
-    assert!(indexed.replace_field(0, "note", "something").is_none());
-    assert!(indexed.replace_field(9, "title", "nowhere").is_none());
+    let mut indexed = Searcher::build(&library(), &SearchOptions::default());
+    let before: Vec<Vec<usize>> = queries().iter().map(|q| hits(&indexed, q)).collect();
+    // A field no entry had, and a row the library does not hold, each leave the
+    // index answering as it did.
+    indexed.replace_field(0, "note", "something");
+    indexed.replace_field(9, "title", "nowhere");
+    let after: Vec<Vec<usize>> = queries().iter().map(|q| hits(&indexed, q)).collect();
+    assert_eq!(before, after, "an unknown field or row changes nothing");
 }

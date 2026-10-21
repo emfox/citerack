@@ -2,7 +2,6 @@
 //! A query may match inside a word (`ide` is in `indexing`), so the index keeps
 //! whole words and every run of four bytes of every word. A term costs postings.
 
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
@@ -21,32 +20,46 @@ type Postings = Vec<u32>;
 #[derive(Clone)]
 pub struct InvertedIndex {
     runs: HashMap<u32, Postings>,
-    words: HashMap<Box<str>, Postings>,
-    /// Where each run of one to three bytes starts in `by_gram`, so a term narrower
-    /// than a run costs a lookup instead of a walk over the vocabulary.
-    grams: HashMap<u64, u32>,
-    /// The words those runs name, each held once per gram it belongs to. A gram
-    /// naming one word is one entry here, which is what a library of invented words
-    /// mostly has.
-    by_gram: Vec<WordId>,
-    /// Where each word of `by_gram` ends the run it belongs to, so a gram naming
-    /// several words is read as a range without asking the table which come next.
-    next_gram: Vec<u32>,
+    words: Vocabulary,
+    /// The gram table, out of date after an edit until a short term needs it.
+    grams: Option<Grams>,
     /// Each run of one to three bytes of a word a single row holds, as a pair of run
-    /// and row: such a word needs no vocabulary, so a library whose words are all
-    /// unique pays a pair per run rather than a word id, a range and a key.
-    solo: Vec<(u64, u32)>,
-    /// Which entries of `solo` hold each run, so a run is a contiguous range.
-    solo_at: HashMap<u64, (u32, u32)>,
+    /// and row, so such a word needs no vocabulary. It names rows, so an edit that
+    /// moves one rebuilds it from the vocabulary.
+    solo: Solo,
+    /// Which entries of `solo` hold each run, so a run is a contiguous range. An
+    /// edit drops it, since which rows hold a word is what an edit changes.
+    solo_at: Option<HashMap<u64, (u32, u32)>>,
     /// The rows of each word, as a range of `flat`, so answering a short term
     /// never pays a string hash per word.
     per_word: Vec<(u32, u32)>,
     flat: Postings,
     len: usize,
+    /// How many words the last walk over the vocabulary left with no row, so the
+    /// walk is paid for by many edits rather than by each one.
+    dead: usize,
 }
 
 /// An index into a column's dictionary.
 type WordId = u32;
+
+/// The words one column's table holds, each held by a run of rows.
+type Vocabulary = HashMap<Box<str>, Postings>;
+
+/// The gram table of one vocabulary, split into what a query reads.
+#[derive(Clone, Debug, Default)]
+struct Grams {
+    /// Where each four-byte-or-shorter gram starts in `words`.
+    at: HashMap<u64, u32>,
+    /// The words those grams name, each held once per gram it belongs to.
+    words: Vec<WordId>,
+    /// Where each entry of `words` ends the gram it belongs to, so a gram naming
+    /// several words is read as a range without asking the table which come next.
+    next: Vec<u32>,
+}
+
+/// The runs of every word no two rows share, as a pair of run and row.
+type Solo = Vec<(u64, u32)>;
 
 /// The key a four-byte run is stored under, independent of byte order so long as
 /// writes and reads agree.
@@ -62,59 +75,48 @@ fn gram_key(bytes: &[u8]) -> u64 {
     u64::from(u32::from_le_bytes(buf)) | ((bytes.len() as u64) << 32)
 }
 
+/// One text's distinct words, sorted, which is how a row's postings are held.
+fn words_of(text: &str) -> Vec<Box<str>> {
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut words: Vec<Box<str>> = Vec::new();
+    for term in terms(text) {
+        let word = &text[term.start..term.end];
+        if seen.insert(word) {
+            words.push(word.into());
+        }
+    }
+    words.sort_unstable();
+    words
+}
+
+/// The runs a row's words put it into, sorted and deduplicated.
+fn runs_of(words: &[Box<str>]) -> Vec<u32> {
+    let mut runs: Vec<u32> = Vec::new();
+    for word in words {
+        let bytes = word.as_bytes();
+        if bytes.len() < WINDOW {
+            continue;
+        }
+        for at in 0..=bytes.len() - WINDOW {
+            runs.push(key(&bytes[at..at + WINDOW]));
+        }
+    }
+    runs.sort_unstable();
+    runs.dedup();
+    runs
+}
+
 /// The widths of run to index for a word of this length: every width below a run,
 /// and every width of the word itself when the word is shorter than one.
 fn widths(len: usize) -> usize {
     WINDOW.min(len + 1)
 }
 
-impl InvertedIndex {
-    /// Indexes every row of one column's folded values. A word a row already
-    /// contributed is skipped, because a long abstract repeats its vocabulary and
-    /// the repeats would only be written here to be dropped by the dedup below.
-    pub fn build(values: &[Option<String>]) -> Self {
-        let mut draft = Draft::new();
-        for (row, value) in values.iter().enumerate() {
-            if let Some(text) = value {
-                draft.add(row as u32, text);
-            }
-        }
-        draft.finish()
-    }
-
-    /// This index with one row's text replaced, which is what an edit costs
-    /// rather than a rebuild of the column.
-    pub fn with_row(&self, row: usize, text: Option<&str>) -> Self {
-        let mut draft = Draft::new();
-        for at in 0..self.len {
-            if at != row {
-                draft.push(at as u32, self.rows_of(at));
-            }
-        }
-        if let Some(text) = text {
-            draft.add(row as u32, text);
-        }
-        draft.finish()
-    }
-
-    /// Every row holding one word, which is the inverse of what `build` was given.
-    fn rows_of(&self, row: usize) -> impl Iterator<Item = (Cow<'_, str>, u32)> + '_ {
-        self.words.iter().filter_map(move |(word, rows)| {
-            rows.binary_search(&(row as u32))
-                .ok()
-                .map(|_| (Cow::Borrowed(word.as_ref()), row as u32))
-        })
-    }
-}
-
-/// The columns of one index while they are being collected, before the tables a
-/// query reads are laid out from them.
+/// The tables of one index while they are being collected, before the gram and
+/// solo tables are laid out from them.
 struct Draft {
     runs: HashMap<u32, Postings>,
-    words: HashMap<Box<str>, Postings>,
-    by_gram: Vec<(u64, WordId)>,
-    solo: Vec<(u64, u32)>,
-    words_of: Vec<Box<str>>,
+    words: Vocabulary,
     len: usize,
 }
 
@@ -122,29 +124,13 @@ impl Draft {
     fn new() -> Self {
         Self {
             runs: HashMap::new(),
-            words: HashMap::new(),
-            by_gram: Vec::new(),
-            solo: Vec::new(),
-            words_of: Vec::new(),
+            words: Vocabulary::new(),
             len: 0,
-        }
-    }
-
-    /// Records one row's postings for words it already contributed. The runs of
-    /// a word follow from the word, so they are read back off it rather than
-    /// stored twice.
-    fn push<'a>(&mut self, row: u32, held: impl Iterator<Item = (Cow<'a, str>, u32)>) {
-        for (word, _) in held {
-            self.len = self.len.max(row as usize + 1);
-            self.word(row, &word);
         }
     }
 
     /// Records one word of one row, with the runs a query finds it by.
     fn word(&mut self, row: u32, word: &str) {
-        if !self.words.contains_key(word) {
-            self.words_of.push(word.into());
-        }
         self.words.entry(word.into()).or_default().push(row);
         // A word shorter than a run is only ever asked about as a whole word, so
         // storing its runs would be memory nobody reads.
@@ -178,9 +164,6 @@ impl Draft {
         let Self {
             mut runs,
             mut words,
-            mut by_gram,
-            mut solo,
-            words_of,
             len,
         } = self;
         for list in runs.values_mut() {
@@ -191,114 +174,231 @@ impl Draft {
             list.sort_unstable();
             list.dedup();
         }
-        // One sorted array of gram and word, so a gram is a contiguous run. Words are
-        // ordered rare first, so a query that fills every row stops early. Reach is
-        // computed once, since a key function runs per comparison.
-        let reach: Vec<u32> = words_of
-            .iter()
-            .map(|word| words.get(word.as_ref()).map_or(0, |list| list.len()) as u32)
-            .collect();
-        // A word held by one row needs no word-to-rows indirection: its row is the
-        // answer, and it goes in `solo` as a plain pair. The rest are ordered and
-        // indexed as they were.
-        for (id, word) in words_of.iter().enumerate() {
-            let held = reach[id];
-            if held <= 1 {
-                let row = words.get(word.as_ref()).and_then(|l| l.first()).copied();
-                if let Some(row) = row {
-                    // Widths below a run only, since a four-byte gram would never
-                    // be read; a word shorter than a run gives every width it has.
-                    for width in 1..widths(word.len()) {
-                        let bytes = word.as_bytes();
-                        for at in 0..=bytes.len() - width {
-                            solo.push((gram_key(&bytes[at..at + width]), row));
-                        }
-                    }
-                }
-                continue;
-            }
-            for width in 1..widths(word.len()) {
-                let bytes = word.as_bytes();
-                for at in 0..=bytes.len() - width {
-                    by_gram.push((gram_key(&bytes[at..at + width]), id as WordId));
-                }
-            }
-        }
-        // A reach of zero is a word no row holds, which the dedup above cannot
-        // take away since a live word shares its bytes. Nothing may name it.
-        by_gram.retain(|(_, id)| reach[*id as usize] > 0);
-        by_gram.sort_unstable_by_key(|(gram, id)| (*gram, reach[*id as usize], *id));
-        by_gram.dedup();
-        // Each gram names a range of `words_at`, which is `by_gram` without the gram
-        // keys. A gram naming one word is most of the table on a library of invented
-        // words, and its entry is then one word id rather than a start and a length.
-        let mut grams: HashMap<u64, u32> = HashMap::new();
-        let mut words_at: Vec<WordId> = Vec::new();
-        let mut next_gram: Vec<u32> = Vec::new();
-        let mut at = 0usize;
-        while at < by_gram.len() {
-            let gram = by_gram[at].0;
-            let mut end = at + 1;
-            while end < by_gram.len() && by_gram[end].0 == gram {
-                end += 1;
-            }
-            grams.insert(gram, words_at.len() as u32);
-            words_at.extend(by_gram[at..end].iter().map(|(_, id)| *id));
-            next_gram.resize(words_at.len(), words_at.len() as u32);
-            at = end;
-        }
-        // The solo table is sorted by gram and then row, so a gram names a run of
-        // rows with no vocabulary behind it.
-        solo.sort_unstable();
-        solo.dedup();
-        let mut solo_at: HashMap<u64, (u32, u32)> = HashMap::new();
-        let mut at = 0u32;
-        while at < solo.len() as u32 {
-            let gram = solo[at as usize].0;
-            let start = at;
-            while at < solo.len() as u32 && solo[at as usize].0 == gram {
-                at += 1;
-            }
-            solo_at.insert(gram, (start, at - start));
-        }
-        let mut per_word: Vec<(u32, u32)> = vec![(0, 0); words_of.len()];
+        let (grams, solo, order) = lay_out(&words);
+        let solo_at = runs_at(&solo);
+        // Laid out in the order the words are numbered in, not in the order the rows
+        // were read, so a word id finds its own rows.
+        let mut per_word: Vec<(u32, u32)> = vec![(0, 0); order.len()];
         let mut flat: Postings = Vec::new();
-        for (id, word) in words_of.iter().enumerate() {
+        for (id, word) in order.iter().enumerate() {
             let Some(list) = words.get(word.as_ref()) else {
                 continue;
             };
             per_word[id] = (flat.len() as u32, list.len() as u32);
             flat.extend_from_slice(list);
         }
+        // What every row said, so the first edit of a row can take its words back
+        // out of the tables rather than reading the whole of them.
         InvertedIndex {
             runs,
             words,
-            grams,
-            by_gram: words_at,
-            next_gram,
+            grams: Some(grams),
             solo,
-            solo_at,
+            solo_at: Some(solo_at),
             per_word,
             flat,
             len,
+            dead: 0,
         }
     }
 }
 
 impl InvertedIndex {
-    /// The words a gram entry names, as a range of `by_gram`. A start past the end
-    /// names nothing, which is an empty range rather than a clamped one.
-    fn gram_words(&self, held: u32) -> Range<usize> {
-        let start = held as usize;
-        let words = self.by_gram.len();
+    /// Indexes every row of one column's folded values. A word a row already
+    /// contributed is skipped, because a long abstract repeats its vocabulary and
+    /// the repeats would only be written here to be dropped by the dedup below.
+    pub fn build(values: &[Option<String>]) -> Self {
+        let mut draft = Draft::new();
+        for (row, value) in values.iter().enumerate() {
+            if let Some(text) = value {
+                draft.add(row as u32, text);
+            }
+        }
+        draft.finish()
+    }
+
+    /// Replaces one row's text, so an edit costs the row's words rather than the
+    /// column's. The gram tables are dropped rather than rebuilt, since they name a
+    /// word rather than a row, and laid out again once the keystrokes are over.
+    pub fn replace_row(&mut self, row: usize, before: Option<&str>, text: Option<&str>) {
+        let row = row as u32;
+        self.grams = None;
+        let held = before.map(words_of).unwrap_or_default();
+        let now: Vec<Box<str>> = text.map(words_of).unwrap_or_default();
+        let mut emptied = false;
+        for word in &held {
+            if now.binary_search(word).is_err()
+                && let Some(rows) = self.words.get_mut(word)
+            {
+                rows.retain(|held| *held != row);
+                emptied |= rows.is_empty();
+            }
+        }
+        for word in &now {
+            if held.binary_search(word).is_err() {
+                self.words.entry(word.clone()).or_default().push(row);
+            }
+        }
+        // A word no row holds only grows the vocabulary, so the walk waits until a
+        // tenth of the table is dead rather than running once per edit.
+        self.dead += usize::from(emptied);
+        if self.dead * 10 > self.words.len() {
+            self.words.retain(|_, rows| !rows.is_empty());
+            self.dead = 0;
+        }
+        let was = runs_of(&held);
+        let runs = runs_of(&now);
+        for run in &was {
+            if runs.binary_search(run).is_err()
+                && let Some(rows) = self.runs.get_mut(run)
+                && let Ok(at) = rows.binary_search(&row)
+            {
+                rows.remove(at);
+            }
+        }
+        for run in &runs {
+            if was.binary_search(run).is_err() {
+                self.runs.entry(*run).or_default().push(row);
+            }
+        }
+        self.len = self.len.max(row as usize + 1);
+    }
+
+    /// Lays out what an edit dropped: the gram table, and the runs of the solo
+    /// table. Both name a word rather than a row, so they are built again rather
+    /// than patched, and a run of keystrokes would otherwise pay for each one.
+    pub fn relaid(&mut self) {
+        let (grams, solo, order) = lay_out(&self.words);
+        self.grams = Some(grams);
+        self.solo = solo;
+        self.solo_at = Some(runs_at(&self.solo));
+        // The numbering is this layout's, so the rows are read again under it.
+        self.per_word = vec![(0, 0); order.len()];
+        self.flat = Postings::new();
+        for (id, word) in order.iter().enumerate() {
+            let Some(list) = self.words.get(word.as_ref()) else {
+                continue;
+            };
+            self.per_word[id] = (self.flat.len() as u32, list.len() as u32);
+            self.flat.extend_from_slice(list);
+        }
+    }
+}
+
+/// The gram table of one vocabulary, and the runs of the words only one row holds:
+/// a term narrower than a run costs a lookup either way, and a word nobody else
+/// wrote names its row instead of a placeholder entry in the vocabulary.
+fn lay_out(words: &Vocabulary) -> (Grams, Solo, Vec<Box<str>>) {
+    // Rarest first, so a query that fills every row stops early. This order is also
+    // the numbering of the words, and `per_word` is read by a word id, so the two
+    // are built from the one order.
+    let mut order: Vec<Box<str>> = words.keys().cloned().collect();
+    order.sort_unstable_by(|a, b| {
+        let reach = |word: &str| words.get(word).map_or(0, |rows| rows.len());
+        reach(a).cmp(&reach(b)).then_with(|| a.cmp(b))
+    });
+    let held: Vec<u32> = order
+        .iter()
+        .map(|word| words.get(word.as_ref()).map_or(0, |rows| rows.len()) as u32)
+        .collect();
+    let mut pairs: Vec<(u64, WordId)> = Vec::new();
+    let mut solo: Solo = Vec::new();
+    for (id, word) in order.iter().enumerate() {
+        let held = held[id];
+        // A word one row holds names that row rather than itself, so it is answered
+        // from a pair of run and row and needs no entry in the vocabulary. A term of
+        // a `WINDOW` or more is answered from `runs`, which every word is in.
+        if held <= 1 {
+            let Some(&row) = words.get(word).and_then(|rows| rows.first()) else {
+                continue;
+            };
+            let bytes = word.as_bytes();
+            for width in 1..widths(word.len()) {
+                for at in 0..=bytes.len() - width {
+                    solo.push((gram_key(&bytes[at..at + width]), row));
+                }
+            }
+            continue;
+        }
+        let bytes = word.as_bytes();
+        for width in 1..widths(word.len()) {
+            for at in 0..=bytes.len() - width {
+                pairs.push((gram_key(&bytes[at..at + width]), id as WordId));
+            }
+        }
+    }
+    // A run is looked up as a run, so a word is ranked by its rows rather than by
+    // which key named it.
+    let rank = |id: WordId| held[id as usize];
+    pairs.sort_unstable_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| rank(a.1).cmp(&rank(b.1)))
+            .then_with(|| a.1.cmp(&b.1))
+    });
+    // The same word said twice by one row names its gram twice, and only a pair is
+    // a repeat: two words sharing a gram are two entries of that gram.
+    pairs.dedup();
+    // Each gram names a range of `words`, which is `pairs` without the gram keys. A
+    // gram naming one word is most of the table on a library of invented words, and
+    // its entry is then one word id rather than a start and a length.
+    let mut grams = Grams::default();
+    let mut at = 0usize;
+    while at < pairs.len() {
+        let gram = pairs[at].0;
+        let mut end = at + 1;
+        while end < pairs.len() && pairs[end].0 == gram {
+            end += 1;
+        }
+        // Where this gram's run starts, which is also where its own entry in the
+        // table of ends begins.
+        grams.at.insert(gram, grams.next.len() as u32);
+        grams.words.extend(pairs[at..end].iter().map(|(_, id)| *id));
+        // The table of ends is one entry per word and reads as a run: the entry
+        // under a word's place is the end of that word's gram, so the last word of a
+        // gram carries the end of the run.
+        let run_end = grams.words.len() as u32;
+        grams.next.resize(run_end as usize, run_end);
+        at = end;
+    }
+    // Sorted by gram and then row, so a gram names a run of rows with no vocabulary
+    // behind it.
+    solo.sort_unstable();
+    solo.dedup();
+    (grams, solo, order)
+}
+
+/// Which entries of a solo table hold each run, so a run is a contiguous range.
+fn runs_at(solo: &Solo) -> HashMap<u64, (u32, u32)> {
+    let mut at: HashMap<u64, (u32, u32)> = HashMap::new();
+    let mut now = 0u32;
+    while now < solo.len() as u32 {
+        let gram = solo[now as usize].0;
+        let start = now;
+        while now < solo.len() as u32 && solo[now as usize].0 == gram {
+            now += 1;
+        }
+        at.insert(gram, (start, now - start));
+    }
+    at
+}
+
+impl InvertedIndex {
+    /// The words one gram names, as a range of the table. A start past the end names
+    /// nothing, which is an empty range rather than a clamped one.
+    fn gram_words(grams: &Grams, at: u32) -> Range<usize> {
+        let start = at as usize;
+        let words = grams.words.len();
         if start >= words {
             return words..words;
         }
-        let end = self
-            .next_gram
-            .get(start)
-            .map_or(words, |next| *next as usize);
+        let end = grams.next.get(start).map_or(words, |next| *next as usize);
         start..end.clamp(start, words)
+    }
+
+    /// Whether the gram table is in place, which an edit after the last query leaves
+    /// undone until a term short enough to need it arrives.
+    pub fn is_laid_out(&self) -> bool {
+        self.grams.is_some()
     }
 
     /// The rows holding `term` inside a word, in ascending order. A term of four
@@ -311,38 +411,40 @@ impl InvertedIndex {
         // A bitmap collects the rows of those words, since sorting the repeats
         // across many words costs more than marking them. The walk is rarest
         // first and stops once every row is marked.
-        let key_of_gram = gram_key(term.as_bytes());
         let mut marked = vec![false; self.len];
         let mut unmarked = self.len;
         let mut any = false;
-        if let Some(held) = self.grams.get(&key_of_gram) {
-            // A gram names its words where it says to, and `next_gram` says where the
-            // run ends, so a gram naming one word costs one word id and no length.
-            for id in &self.by_gram[self.gram_words(*held)] {
-                let Some(&(at, count)) = self.per_word.get(*id as usize) else {
-                    continue;
-                };
-                let rows = &self.flat[at as usize..(at + count) as usize];
-                for row in rows {
-                    if let Some(slot) = marked.get_mut(*row as usize)
-                        && !*slot
-                    {
-                        *slot = true;
-                        unmarked -= 1;
-                        any = true;
+        let wanted = gram_key(term.as_bytes());
+        if let Some(grams) = &self.grams {
+            if let Some(&at) = grams.at.get(&wanted) {
+                let ids: Vec<u32> = grams.words[Self::gram_words(grams, at)].to_vec();
+                for id in &ids {
+                    let Some(&(start, count)) = self.per_word.get(*id as usize) else {
+                        continue;
+                    };
+                    let rows = &self.flat[start as usize..(start + count) as usize];
+                    for row in rows {
+                        if let Some(slot) = marked.get_mut(*row as usize)
+                            && !*slot
+                        {
+                            *slot = true;
+                            unmarked -= 1;
+                            any = true;
+                        }
                     }
-                }
-                if unmarked == 0 {
-                    break;
+                    if unmarked == 0 {
+                        break;
+                    }
                 }
             }
         }
         // A word held by a single row is a pair of run and row, so its rows come
-        // straight out of `solo` with no vocabulary to walk.
+        // straight out of the solo table with no vocabulary to walk.
         if unmarked > 0
-            && let Some((start, len)) = self.solo_at.get(&key_of_gram)
+            && let Some(at) = self.solo_at.as_ref().and_then(|at| at.get(&wanted))
         {
-            for (_, row) in &self.solo[*start as usize..(*start + *len) as usize] {
+            let rows = &self.solo[at.0 as usize..(at.0 + at.1) as usize];
+            for (_, row) in rows {
                 if let Some(slot) = marked.get_mut(*row as usize)
                     && !*slot
                 {
@@ -397,7 +499,7 @@ impl InvertedIndex {
 
     /// How many distinct runs the gram table names, for a report.
     pub fn gram_count(&self) -> usize {
-        self.grams.len()
+        self.grams.as_ref().map_or(0, |grams| grams.at.len())
     }
 
     /// How many gram entries the table of words held by a single row has, for a
@@ -609,7 +711,10 @@ mod tests {
         // A term of four bytes or more is answered from the run table, so a gram of
         // four bytes would be written and never asked for.
         let idx = index(&["retrieval", "retrieval and more", "retrieval again"]);
-        let widest = idx.grams.keys().map(|gram| gram >> 32).max();
+        let widest = idx
+            .grams
+            .as_ref()
+            .and_then(|grams| grams.at.keys().map(|gram| gram >> 32).max());
         assert_eq!(widest, Some(3), "the widest gram is three bytes");
     }
 

@@ -30,13 +30,20 @@ pub struct Session {
     only_duplicates: bool,
     /// Whether an edit left the index describing the file rather than the screen.
     stale: bool,
+    /// Whether the index's gram and solo tables are in place, which an edit undoes:
+    /// they name a word rather than a row, so an edit lays them out again instead of
+    /// patching them, and a run of keystrokes would otherwise pay for each one.
+    laid_out: bool,
     /// What each change replaced, oldest first, and what it left behind.
     past: Vec<Change>,
     future: Vec<Change>,
     /// When the last edit landed, which is what a pause is measured from.
     last_edit: Option<Instant>,
-    /// The duplicate scan for the current library, dropped when an edit lands.
+    /// The duplicate scan for the current library, patched by an edit.
     duplicates: Option<Vec<Pair>>,
+    /// Which entry first holds each key the scan pairs on, kept beside the scan so
+    /// an edit patches the pairs it moves rather than the whole library.
+    duplicate_keys: Option<citerack_index::Duplicates>,
 }
 
 /// One change: a run of edits with no pause long enough to be a separate step.
@@ -109,10 +116,12 @@ impl Session {
             rows,
             only_duplicates: false,
             stale: false,
+            laid_out: true,
             past: Vec::new(),
             future: Vec::new(),
             last_edit: None,
             duplicates: None,
+            duplicate_keys: None,
         })
     }
 
@@ -207,11 +216,14 @@ impl Session {
     }
 
     /// The pairs of entries that look like the same work. The scan runs the first
-    /// time it is asked for after a change and is kept until the next one, so a
-    /// window may ask every frame.
+    /// time it is asked for, and an edit patches it rather than dropping it, so a
+    /// window may ask every frame without paying for a scan.
     pub fn duplicates(&mut self) -> &[Pair] {
         if self.duplicates.is_none() {
-            self.duplicates = Some(citerack_index::find_duplicates(&self.library));
+            let (mut pairs, keys) = citerack_index::Duplicates::scanned(&self.library);
+            pairs.sort_unstable_by_key(|pair| (pair.first, pair.second, pair.reason as u8));
+            self.duplicates = Some(pairs);
+            self.duplicate_keys = Some(keys);
         }
         self.duplicates.as_deref().unwrap_or_default()
     }
@@ -439,37 +451,50 @@ impl Session {
     /// Brings the keys and the index back in line with entries a restore changed.
     fn refreshed(&mut self, states: &[EntryState]) {
         self.duplicates = None;
+        self.duplicate_keys = None;
+        self.stale = false;
+        self.laid_out = true;
         for state in states {
             self.reindexed(state.entry);
         }
         self.refresh_view();
     }
 
-    /// Records that one row changed: its key, and the postings of every field of
-    /// it in the index, which costs the row rather than the library. A changed row
-    /// can start or end a duplicate pair, so the scan is dropped with it.
+    /// Records that one row changed: its key, and the postings of every field of it
+    /// in the index. Only the changed row can start or end a pair, so a scan already
+    /// held is patched rather than dropped, which a user typing would feel.
     fn touched(&mut self, entry: usize) {
-        self.duplicates = None;
+        if let Some(pairs) = &mut self.duplicates
+            && let Some(keys) = &mut self.duplicate_keys
+        {
+            pairs.retain(|pair| pair.first != entry && pair.second != entry);
+            pairs.extend(keys.patch(&self.library, entry));
+            pairs.sort_unstable_by_key(|pair| (pair.first, pair.second, pair.reason as u8));
+        }
         self.reindexed(entry);
         self.refresh_view();
     }
 
-    /// Recomputes one row's sort key and replaces its words in each column.
+    /// Recomputes one row's sort key and replaces its words in each column, which
+    /// costs the row rather than the library: an edit is a keystroke, so a rebuild
+    /// here would be felt on a large library.
     fn reindexed(&mut self, entry: usize) {
         if let Some(key) = self.sort_keys.get_mut(entry) {
             *key = SortKey::of(&self.library, entry);
         }
+        // The gram and solo tables name rows as well as words, so an edit drops them
+        // and the index lays them out again when a search next needs one, rather
+        // than per keystroke.
+        self.laid_out = false;
         let names: Vec<String> = self
             .searcher
             .field_names()
             .iter()
             .map(|name| (*name).to_owned())
             .collect();
-        for name in names {
-            let text = self.text_of(entry, &name);
-            if let Some(next) = self.searcher.replace_field(entry, &name, &text) {
-                self.searcher = next;
-            }
+        for name in &names {
+            self.searcher
+                .replace_field(entry, name, &self.text_of(entry, name));
         }
     }
 
@@ -484,14 +509,20 @@ impl Session {
             .to_owned()
     }
 
-    /// Rebuilds the index if an edit left it behind, which is what keeps a search
-    /// answering from the text on screen rather than the text the file had.
+    /// Brings the index up to the screen: the whole index after a restore, and the
+    /// gram and solo tables after a run of edits. A search asks this first, so it
+    /// answers from the text on display rather than the text the file had.
     fn catch_up(&mut self) {
-        if !self.stale {
+        if self.stale {
+            self.searcher = Searcher::build(&self.library, &SearchOptions::default());
+            self.stale = false;
+            self.laid_out = true;
             return;
         }
-        self.searcher = Searcher::build(&self.library, &SearchOptions::default());
-        self.stale = false;
+        if !self.laid_out {
+            self.searcher.settle();
+            self.laid_out = true;
+        }
     }
 
     /// Writes to another path, leaving the original untouched; the default
