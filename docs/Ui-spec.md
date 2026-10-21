@@ -145,6 +145,8 @@ items, and each is a different query string rather than a different region.
 | `Ctrl`/`Cmd` + `F` | anywhere | focus the filter box |
 | `Escape` | filter box | clear the filter |
 | `Up` / `Down` | table | move the selection |
+| `Ctrl`/`Cmd` + `Z` | anywhere | take back the last change |
+| `Ctrl`/`Cmd` + `Shift` + `Z`, or `Ctrl` + `Y` | anywhere | put the change back |
 
 The list is short because a key binding nobody knows about is a key binding
 nobody uses. Each entry here is also reachable from a control, so the keyboard is
