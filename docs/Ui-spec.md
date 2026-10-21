@@ -138,19 +138,27 @@ items, and each is a different query string rather than a different region.
 
 ## 7. Keyboard
 
-| Key | Where | Effect |
-| --- | --- | --- |
-| `Ctrl`/`Cmd` + `O` | anywhere | open a file |
-| `Ctrl`/`Cmd` + `S` | anywhere | save |
-| `Ctrl`/`Cmd` + `F` | anywhere | focus the filter box |
-| `Escape` | filter box | clear the filter |
-| `Up` / `Down` | table | move the selection |
-| `Ctrl`/`Cmd` + `Z` | anywhere | take back the last change |
-| `Ctrl`/`Cmd` + `Shift` + `Z`, or `Ctrl` + `Y` | anywhere | put the change back |
+| Key | Where | Effect | Also a control |
+| --- | --- | --- | --- |
+| `Ctrl`/`Cmd` + `O` | anywhere | open a file | the `Open` button |
+| `Ctrl`/`Cmd` + `S` | anywhere | save | the `Save` button |
+| `Ctrl`/`Cmd` + `F` | anywhere | put the cursor in the filter box | the box itself |
+| `Escape` | filter box | clear the filter | — |
+| `Ctrl`/`Cmd` + `Z` | anywhere | take back the last change | the `Undo` button |
+| `Ctrl`/`Cmd` + `Shift` + `Z`, or `Ctrl` + `Y` | anywhere | put the change back | the `Redo` button |
 
 The list is short because a key binding nobody knows about is a key binding
 nobody uses. Each entry here is also reachable from a control, so the keyboard is
 a shortcut rather than the only way.
+
+`Ctrl+F` reaches the filter from a field box as well as from the table, because
+the cursor is in a field box when a user has just finished an edit. The four
+modifier keys fire wherever the focus is; a field box holds no state the library
+has not already been given.
+
+What the keyboard cannot yet do, and what section 1 of `docs/Roadmap.md` is for:
+moving the selection with `Up` and `Down`, and reaching a field box without a
+click.
 
 ## 8. Empty and loading states
 
