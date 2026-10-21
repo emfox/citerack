@@ -1,12 +1,6 @@
-# A Windows build from a Linux host. Neither setting is read until a Windows
-# target is asked for, so a Linux build is untouched by them.
-
-[target.x86_64-pc-windows-gnu]
-linker = "x86_64-w64-mingw32-gcc"
-ar = "x86_64-w64-mingw32-ar"
-
 # The MSVC target links against the Visual C++ runtime by default, which a machine
 # without the redistributable does not have. Static linking leaves only the system
 # libraries, which every Windows has.
+
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
