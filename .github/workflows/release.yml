@@ -1,0 +1,115 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  # A tag is the only thing that publishes, so a run can be checked first without
+  # leaving a draft behind.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The window stack links against these; without them the build stops at
+      # the first crate that wants a font or a keymap.
+      - name: Install the window development packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-x11-dev libfontconfig1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --locked -p citerack
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/release/citerack dist/citerack
+          cd dist && sha256sum citerack > citerack.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: citerack-linux
+          path: dist/*
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner carries the MSVC toolchain, so the target needs no setup
+      # beyond the one rustup ships with.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The runtime is linked statically by `.cargo/config.toml`, so the exe needs
+      # no redistributable on the machine that runs it.
+      - name: Build
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc -p citerack
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/x86_64-pc-windows-msvc/release/citerack.exe dist/citerack.exe
+          $hash = (Get-FileHash dist/citerack.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  citerack.exe" | Out-File -FilePath dist/citerack.exe.sha256 -Encoding ascii
+
+      # The exe has no signature, so the checksum is the way to tell the file
+      # apart from anything else that carries the same name.
+      - name: Check the dependencies are all system libraries
+        shell: pwsh
+        run: |
+          $dlls = & dumpbin /nologo /dependents dist/citerack.exe |
+            Select-String -Pattern '^\s+(\S+\.dll)\s*$' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value }
+          $borrowed = $dlls | Where-Object {
+            $_ -match '^(VCRUNTIME|MSVCP|api-ms-win-crt|ucrtbase)' -or $_ -match '^(libgcc|libstdc)'
+          }
+          if ($borrowed) {
+            Write-Error "The exe needs a runtime the machine may not have: $borrowed"
+          }
+          $dlls | Sort-Object -Unique | ForEach-Object { "  $_" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: citerack-windows
+          path: dist/*
+
+  publish:
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List what will be published
+        run: ls -l dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          # A tag that only moves the checksum still needs a note, so the release
+          # body is the changelog's unreleased section rather than nothing.
+          body: |
+            Built from ${{ github.sha }} by the release workflow.
+
+            Each binary has a `.sha256` beside it. Verify with:
+
+                sha256sum -c citerack.sha256          # Linux
+                Get-FileHash citerack.exe -Algorithm SHA256   # Windows
