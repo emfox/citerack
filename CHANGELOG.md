@@ -18,7 +18,11 @@ the repository is not listed here.
   display attached.
 - A search is answered from an index rather than by reading every entry, so a
   word nobody wrote returns at once and a word somebody wrote costs only the rows
-  that hold it. On a library of 100 000 entries a query takes between 0.02 ms and
-  6 ms, against 50 ms before.
+  that hold it. On a library of 100 000 entries a query takes between 0.04 ms and
+  4 ms, against 50 ms before.
+- A fragment of one to three letters, which is what a filter box holds after the
+  first keystroke, is answered as fast as a whole word. Typing three letters into
+  a library of 30 000 entries with no repeated word used to take 13 ms and now
+  takes 0.13 ms, and a single letter there used to take 56 ms and now takes 3.6 ms.
 - `citerack --explain`, which prints how many rows each column holds for a query,
   so a search that returns too much or too little can be traced to a field.
