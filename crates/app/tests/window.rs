@@ -496,3 +496,39 @@ fn the_arrows_move_the_table_again_once_the_field_box_lets_go() {
         "with no box holding the cursor the arrows are the table's again"
     );
 }
+
+#[test]
+fn a_save_clears_the_unsaved_marker_from_the_toolbar() {
+    let dir = std::env::temp_dir().join(format!("citerack-marker-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory");
+    let path = dir.join("library.bib");
+    std::fs::write(&path, INPUT).expect("the file");
+    let session = Session::open(&path).expect("an open");
+
+    let mut harness = harness(App::with_session(session));
+    harness.state_mut().select(Some(0));
+    harness.run();
+    retype_year(&mut harness, "2025");
+    assert_eq!(
+        harness.query_all_by_label("Save *").count(),
+        1,
+        "an edit marks the save as owed"
+    );
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    harness.run();
+    assert!(
+        !harness.state().session().unwrap().is_edited(),
+        "the file holds the edit now"
+    );
+    assert_eq!(
+        harness.query_all_by_label("Save *").count(),
+        0,
+        "the star goes once the work is written"
+    );
+    assert_eq!(
+        harness.query_all_by_label("Save").count(),
+        1,
+        "the button stays"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

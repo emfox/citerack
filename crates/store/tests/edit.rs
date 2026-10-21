@@ -79,7 +79,7 @@ fn only_the_edited_value_moves_in_the_file() {
 #[test]
 fn a_save_that_changed_nothing_rewrites_the_same_bytes() {
     let file = TempFile::holding("edit-none", INPUT);
-    let session = Session::open(&file.path).expect("an open");
+    let mut session = Session::open(&file.path).expect("an open");
     assert!(!session.is_edited());
     session.save().expect("a save");
     assert_eq!(file.read(), INPUT);
@@ -148,4 +148,44 @@ fn a_search_after_an_edit_reads_the_edited_value() {
         "the old word is gone"
     );
     assert_eq!(session.search("Braces").rows.len(), 1);
+}
+
+#[test]
+fn a_save_leaves_nothing_outstanding() {
+    let file = TempFile::holding("save-clears", INPUT);
+    let mut session = Session::open(&file.path).expect("an open");
+    assert!(
+        !session.is_edited(),
+        "a file just opened is not unsaved work"
+    );
+    session.set_field(0, 1, "A Study of No Braces").unwrap();
+    assert!(session.is_edited(), "an edit is unsaved work");
+    session.save().expect("a save");
+    assert!(
+        !session.is_edited(),
+        "the bytes on disk are the model's now"
+    );
+}
+
+#[test]
+fn a_second_save_after_a_first_one_is_still_the_same_file() {
+    let file = TempFile::holding("save-twice", INPUT);
+    let mut session = Session::open(&file.path).expect("an open");
+    session.set_field(0, 1, "A Study of No Braces").unwrap();
+    session.save().expect("a save");
+    let once = file.read();
+    session.save().expect("a second save");
+    assert_eq!(file.read(), once, "saving twice wrote nothing new");
+}
+
+#[test]
+fn an_edit_after_a_save_is_unsaved_again() {
+    let file = TempFile::holding("edit-after-save", INPUT);
+    let mut session = Session::open(&file.path).expect("an open");
+    session.set_field(0, 1, "First").unwrap();
+    session.save().expect("a save");
+    session.set_field(0, 1, "Second").unwrap();
+    assert!(session.is_edited(), "a later edit is new work");
+    session.save().expect("a second save");
+    assert!(file.read().contains("Second"), "the later edit was written");
 }
