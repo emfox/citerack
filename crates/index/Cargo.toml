@@ -1,0 +1,12 @@
+[package]
+name = "citerack-index"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Search and sort structures over a parsed bibliography, built once and queried without touching the event loop"
+
+[dependencies]
+citerack-bib.workspace = true
+memchr.workspace = true
