@@ -10,7 +10,7 @@ mod search;
 mod sort;
 mod token;
 
-pub use duplicate::{Pair, Reason, find as find_duplicates};
+pub use duplicate::{Index as Duplicates, Keys, Pair, Reason, find as find_duplicates};
 pub use fold::fold;
 pub use inverted::{InvertedIndex, WINDOW};
 pub use matcher::{FieldRef, Matcher};

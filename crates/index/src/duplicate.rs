@@ -38,68 +38,148 @@ pub struct Pair {
     pub reason: Reason,
 }
 
+/// The keys one entry is found by, which is what a map of every key answers from.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Keys {
+    /// The entry's DOI, normalised.
+    pub doi: Option<String>,
+    /// The entry's title and year, normalised, when it names both.
+    pub title_and_year: Option<(String, String)>,
+}
+
+impl Keys {
+    /// The keys of one entry, each left absent when the entry does not name
+    /// enough to pair on.
+    pub fn of(entry: &Entry) -> Self {
+        let title = entry.field("title").map(normalise_title);
+        let year = entry.field("year").and_then(normalise_year);
+        let title_and_year = match (title, year) {
+            (Some(title), Some(year)) if !title.is_empty() => Some((title, year)),
+            _ => None,
+        };
+        Self {
+            doi: entry.field("doi").and_then(normalise_doi),
+            title_and_year,
+        }
+    }
+}
+
+/// The first entry holding each key, which is what a scan reports the rest
+/// against. Keeping it beside the library is what an edit patches rather than the
+/// whole scan: only the edited entry's own keys can move.
+#[derive(Debug, Clone, Default)]
+pub struct Index {
+    doi: HashMap<String, usize>,
+    title: HashMap<(String, String), usize>,
+}
+
+impl Index {
+    /// The first entry holding each key of every entry, built in one pass.
+    pub fn build(library: &Library) -> Self {
+        Self::scanned(library).1
+    }
+
+    /// The pairs one pass finds, and the map of keys that pass built, so a window
+    /// pays for one walk and keeps what an edit patches.
+    pub fn scanned(library: &Library) -> (Vec<Pair>, Self) {
+        let mut index = Self::default();
+        let mut pairs = Vec::new();
+        for (row, entry) in library.entries().iter().enumerate() {
+            pairs.extend(index.remember(row, &Keys::of(entry)));
+        }
+        (pairs, index)
+    }
+
+    /// Records one entry's keys, the earliest entry winning each of them, and
+    /// answers the pairs it makes with the entries already recorded.
+    fn remember(&mut self, row: usize, keys: &Keys) -> Vec<Pair> {
+        let mut pairs = Vec::new();
+        if let Some(doi) = &keys.doi {
+            match self.doi.entry(doi.clone()) {
+                MapEntry::Occupied(held) => pairs.push(Pair {
+                    first: *held.get(),
+                    second: row,
+                    reason: Reason::Doi,
+                }),
+                MapEntry::Vacant(slot) => {
+                    slot.insert(row);
+                }
+            }
+        }
+        if let Some(title) = &keys.title_and_year {
+            match self.title.entry(title.clone()) {
+                MapEntry::Occupied(held) => pairs.push(Pair {
+                    first: *held.get(),
+                    second: row,
+                    reason: Reason::TitleAndYear,
+                }),
+                MapEntry::Vacant(slot) => {
+                    slot.insert(row);
+                }
+            }
+        }
+        pairs
+    }
+
+    /// Forgets the keys of one entry, so it is recorded again where it now belongs.
+    fn forget(&mut self, row: usize, keys: &Keys) {
+        if let Some(doi) = &keys.doi
+            && self.doi.get(doi) == Some(&row)
+        {
+            self.doi.remove(doi);
+        }
+        if let Some(title) = &keys.title_and_year
+            && self.title.get(title) == Some(&row)
+        {
+            self.title.remove(title);
+        }
+    }
+
+    /// The pairs one entry belongs to, which is what an edit to that entry can
+    /// change. Every entry it is reported against is read out of the maps, so the
+    /// cost is the entry's own keys rather than the library's.
+    pub fn patch(&mut self, library: &Library, row: usize) -> Vec<Pair> {
+        let Some(entry) = library.entries().get(row) else {
+            return Vec::new();
+        };
+        let keys = Keys::of(entry);
+        self.forget(row, &keys);
+        let mut pairs = self.remember(row, &keys);
+        // A second copy is paired with the first, not with every copy, so the keys
+        // now held by an entry after this one are paired against it here.
+        let entries = library.entries();
+        for (other, candidate) in entries.iter().enumerate().skip(row + 1) {
+            let theirs = Keys::of(candidate);
+            if let (Some(doi), Some(theirs)) = (&keys.doi, &theirs.doi)
+                && doi == theirs
+            {
+                pairs.push(Pair {
+                    first: row,
+                    second: other,
+                    reason: Reason::Doi,
+                });
+            }
+            if let (Some(title), Some(theirs)) = (&keys.title_and_year, &theirs.title_and_year)
+                && title == theirs
+            {
+                pairs.push(Pair {
+                    first: row,
+                    second: other,
+                    reason: Reason::TitleAndYear,
+                });
+            }
+        }
+        pairs.sort_unstable_by_key(|pair| (pair.first, pair.second, pair.reason as u8));
+        pairs
+    }
+}
+
 /// Every pair that looks like one work entered twice, ordered by the first entry
-/// and then the second so the list is stable. A third copy is reported as two
-/// pairs against the first, not every combination of the three.
+/// and then the second. A third copy is reported as two pairs against the first,
+/// not every combination of the three.
 pub fn find(library: &Library) -> Vec<Pair> {
-    let entries = library.entries();
-    let mut pairs = Vec::new();
-    pairs.extend(by_doi(entries));
-    pairs.extend(by_title_and_year(entries));
+    let (mut pairs, _) = Index::scanned(library);
     pairs.sort_unstable_by_key(|pair| (pair.first, pair.second, pair.reason as u8));
-    pairs
-}
-
-/// Pairs entries naming the same DOI. The first entry holding an identity is the
-/// one the rest are reported against.
-fn by_doi(entries: &[Entry]) -> Vec<Pair> {
-    let mut seen: HashMap<String, usize> = HashMap::new();
-    let mut pairs = Vec::new();
-    for (row, entry) in entries.iter().enumerate() {
-        let Some(doi) = entry.field("doi").and_then(normalise_doi) else {
-            continue;
-        };
-        match seen.entry(doi) {
-            MapEntry::Occupied(held) => pairs.push(Pair {
-                first: *held.get(),
-                second: row,
-                reason: Reason::Doi,
-            }),
-            MapEntry::Vacant(slot) => {
-                slot.insert(row);
-            }
-        }
-    }
-    pairs
-}
-
-/// Pairs entries sharing a title and a year. A year that neither entry names is
-/// not a year they share, so two untitled-in-year entries are left alone: without
-/// both halves there is nothing to be confident about.
-fn by_title_and_year(entries: &[Entry]) -> Vec<Pair> {
-    let mut seen: HashMap<(String, String), usize> = HashMap::new();
-    let mut pairs = Vec::new();
-    for (row, entry) in entries.iter().enumerate() {
-        let Some(title) = entry.field("title").map(normalise_title) else {
-            continue;
-        };
-        if title.is_empty() {
-            continue;
-        }
-        let Some(year) = entry.field("year").and_then(normalise_year) else {
-            continue;
-        };
-        match seen.entry((title, year)) {
-            MapEntry::Occupied(held) => pairs.push(Pair {
-                first: *held.get(),
-                second: row,
-                reason: Reason::TitleAndYear,
-            }),
-            MapEntry::Vacant(slot) => {
-                slot.insert(row);
-            }
-        }
-    }
     pairs
 }
 
