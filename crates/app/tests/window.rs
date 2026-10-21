@@ -88,7 +88,9 @@ fn retype_year(harness: &mut Harness<'_, App>, text: &str) {
         .events
         .push(egui::Event::Text(text.to_owned()));
     harness.run();
-    harness.key_press(egui::Key::Tab);
+    // Escape leaves the box, which commits what is in it. Tab would walk to the
+    // next field instead: the pane owns Tab while a box holds the cursor.
+    harness.key_press(egui::Key::Escape);
     harness.run();
 }
 
@@ -398,5 +400,99 @@ fn an_arrow_in_a_field_box_moves_the_caret_not_the_selection() {
         harness.state().selected(),
         Some(0),
         "the table did not move while a box held the cursor"
+    );
+}
+
+#[test]
+fn ctrl_d_puts_the_cursor_in_the_first_field() {
+    let mut harness = opened();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    harness.run();
+    assert_eq!(
+        harness.state().focused_field(),
+        Some(0),
+        "Ctrl+D reaches the pane from the table"
+    );
+}
+
+#[test]
+fn tab_walks_the_fields_and_wraps_at_the_end() {
+    let mut harness = opened();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    harness.run();
+    let mut walked = Vec::new();
+    for _ in 0..3 {
+        walked.push(harness.state().focused_field());
+        harness.key_press(egui::Key::Tab);
+        harness.run();
+    }
+    // Three fields and three Tabs: the walk visits each one once and comes back to
+    // the start rather than leaving the entry, so one key reaches the whole entry.
+    assert_eq!(walked, [Some(0), Some(1), Some(2)]);
+    assert_eq!(harness.state().focused_field(), Some(0), "the walk wraps");
+}
+
+#[test]
+fn shift_tab_walks_the_fields_backwards() {
+    let mut harness = opened();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    harness.run();
+    harness.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
+    harness.run();
+    assert_eq!(
+        harness.state().focused_field(),
+        Some(2),
+        "backwards from the first field is the last one"
+    );
+}
+
+#[test]
+fn escape_leaves_the_field_box_without_undoing_the_typing() {
+    let mut harness = opened();
+    // Ctrl+D lands in the first field, which is the author's.
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    harness.run();
+    harness.key_press(egui::Key::End);
+    harness.run();
+    for _ in 0..4 {
+        harness.key_press(egui::Key::Backspace);
+        harness.run();
+    }
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::Text(String::from("Ann")));
+    harness.run();
+    harness.key_press(egui::Key::Escape);
+    harness.run();
+    assert!(
+        !harness.state().field_focused(),
+        "Escape hands the cursor back to the window"
+    );
+    assert_eq!(
+        harness.state().status(),
+        "Edited, not saved yet",
+        "the typing was kept"
+    );
+    assert_eq!(
+        harness.state().session().unwrap().value(0, 0).unwrap(),
+        "Smith, Ann",
+        "the box committed before it let go"
+    );
+}
+
+#[test]
+fn the_arrows_move_the_table_again_once_the_field_box_lets_go() {
+    let mut harness = opened();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    harness.run();
+    harness.key_press(egui::Key::Escape);
+    harness.run();
+    harness.key_press(egui::Key::ArrowDown);
+    harness.run();
+    assert_eq!(
+        harness.state().selected(),
+        Some(1),
+        "with no box holding the cursor the arrows are the table's again"
     );
 }
