@@ -30,10 +30,6 @@ pub struct Session {
     only_duplicates: bool,
     /// Whether an edit left the index describing the file rather than the screen.
     stale: bool,
-    /// Whether the index's gram and solo tables are in place, which an edit undoes:
-    /// they name a word rather than a row, so an edit lays them out again instead of
-    /// patching them, and a run of keystrokes would otherwise pay for each one.
-    laid_out: bool,
     /// What each change replaced, oldest first, and what it left behind.
     past: Vec<Change>,
     future: Vec<Change>,
@@ -116,7 +112,6 @@ impl Session {
             rows,
             only_duplicates: false,
             stale: false,
-            laid_out: true,
             past: Vec::new(),
             future: Vec::new(),
             last_edit: None,
@@ -185,7 +180,7 @@ impl Session {
 
     /// Filters to a query, keeping the current sort.
     pub fn search(&mut self, query: &str) -> SearchResult {
-        self.catch_up();
+        self.catch_up(query);
         let matcher = citerack_index::Matcher::new(query);
         let result = self.searcher.search(&matcher, None);
         self.rows.clone_from(&result.rows);
@@ -453,7 +448,6 @@ impl Session {
         self.duplicates = None;
         self.duplicate_keys = None;
         self.stale = false;
-        self.laid_out = true;
         for state in states {
             self.reindexed(state.entry);
         }
@@ -483,9 +477,7 @@ impl Session {
             *key = SortKey::of(&self.library, entry);
         }
         // The gram and solo tables name rows as well as words, so an edit drops them
-        // and the index lays them out again when a search next needs one, rather
-        // than per keystroke.
-        self.laid_out = false;
+        // and a search lays out the ones it needs, rather than every keystroke.
         let names: Vec<String> = self
             .searcher
             .field_names()
@@ -512,17 +504,13 @@ impl Session {
     /// Brings the index up to the screen: the whole index after a restore, and the
     /// gram and solo tables after a run of edits. A search asks this first, so it
     /// answers from the text on display rather than the text the file had.
-    fn catch_up(&mut self) {
+    fn catch_up(&mut self, query: &str) {
         if self.stale {
             self.searcher = Searcher::build(&self.library, &SearchOptions::default());
             self.stale = false;
-            self.laid_out = true;
             return;
         }
-        if !self.laid_out {
-            self.searcher.settle();
-            self.laid_out = true;
-        }
+        self.searcher.settle(query);
     }
 
     /// Writes to another path, leaving the original untouched; the default

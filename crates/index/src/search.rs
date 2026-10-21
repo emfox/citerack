@@ -319,9 +319,9 @@ impl Searcher {
     /// Lays out what edits after the last query left for later: the gram and solo
     /// tables, which name a word rather than a row and are built again rather than
     /// patched. A window calls this once a run of edits is over.
-    pub fn settle(&mut self) {
+    pub fn settle(&mut self, query: &str) {
         for column in &mut self.columns {
-            if !column.inverted.is_laid_out() {
+            if !column.inverted.is_laid_out() && column.inverted.is_read_by(query) {
                 column.inverted.relaid();
             }
         }

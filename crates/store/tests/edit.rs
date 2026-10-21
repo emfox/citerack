@@ -189,3 +189,17 @@ fn an_edit_after_a_save_is_unsaved_again() {
     session.save().expect("a second save");
     assert!(file.read().contains("Second"), "the later edit was written");
 }
+
+#[test]
+fn a_short_query_after_an_edit_answers_from_the_edited_text() {
+    // A short term is answered from tables an edit drops, so this is where an edit
+    // that the search did not catch up on would still show the old title.
+    let file = TempFile::holding("edit-short", INPUT);
+    let mut session = Session::open(&file.path).expect("an open");
+    assert_eq!(session.search("stu").rows, [0], "the title said it");
+
+    session.set_field(0, 1, "A Survey of No Braces").unwrap();
+
+    assert_eq!(session.search("stu").rows, [] as [usize; 0]);
+    assert_eq!(session.search("sur").rows, [0], "the word that replaced it");
+}

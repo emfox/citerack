@@ -289,18 +289,16 @@ impl InvertedIndex {
 /// a term narrower than a run costs a lookup either way, and a word nobody else
 /// wrote names its row instead of a placeholder entry in the vocabulary.
 fn lay_out(words: &Vocabulary) -> (Grams, Solo, Vec<Box<str>>) {
-    // Rarest first, so a query that fills every row stops early. This order is also
-    // the numbering of the words, and `per_word` is read by a word id, so the two
-    // are built from the one order.
-    let mut order: Vec<Box<str>> = words.keys().cloned().collect();
-    order.sort_unstable_by(|a, b| {
-        let reach = |word: &str| words.get(word).map_or(0, |rows| rows.len());
-        reach(a).cmp(&reach(b)).then_with(|| a.cmp(b))
-    });
-    let held: Vec<u32> = order
+    // Rarest first, which is also the numbering `per_word` is read by. Reach travels
+    // in the tuple being sorted, since a comparison that looked a word up would cost
+    // a hash probe per comparison rather than per word.
+    let mut order: Vec<(u32, &Box<str>)> = words
         .iter()
-        .map(|word| words.get(word.as_ref()).map_or(0, |rows| rows.len()) as u32)
+        .map(|(word, rows)| (rows.len() as u32, word))
         .collect();
+    order.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(b.1)));
+    let held: Vec<u32> = order.iter().map(|(reach, _)| *reach).collect();
+    let order: Vec<Box<str>> = order.into_iter().map(|(_, word)| word.clone()).collect();
     let mut pairs: Vec<(u64, WordId)> = Vec::new();
     let mut solo: Solo = Vec::new();
     for (id, word) in order.iter().enumerate() {
@@ -399,6 +397,13 @@ impl InvertedIndex {
     /// undone until a term short enough to need it arrives.
     pub fn is_laid_out(&self) -> bool {
         self.grams.is_some()
+    }
+
+    /// Whether a query reads the laid-out tables at all: a term of a `WINDOW` or more
+    /// is answered from `runs`, which an edit keeps current, so only a shorter one
+    /// waits for the layout.
+    pub fn is_read_by(&self, query: &str) -> bool {
+        query.split_whitespace().any(|term| term.len() < WINDOW)
     }
 
     /// The rows holding `term` inside a word, in ascending order. A term of four

@@ -41,6 +41,39 @@ fn queries() -> [&'static str; 8] {
 }
 
 #[test]
+fn a_short_term_after_an_edit_answers_like_a_library_indexed_again() {
+    let mut edited = Searcher::build(&library(), &SearchOptions::default());
+    edited.replace_field(1, "title", "The Other Book");
+    let mut rebuilt_text = String::from(SAMPLE);
+    rebuilt_text = rebuilt_text.replace("{Another Book}", "{The Other Book}");
+    let rebuilt = Searcher::build(
+        &parse_str(&rebuilt_text, &Default::default()).expect("the edited sample parses"),
+        &SearchOptions::default(),
+    );
+
+    for query in ["ano", "oth", "boo", "k", "sm", "ann"] {
+        edited.settle(query);
+        assert_eq!(
+            hits(&edited, query),
+            hits(&rebuilt, query),
+            "a short term disagrees on {query:?}"
+        );
+    }
+}
+
+#[test]
+fn a_short_term_the_edit_removed_stops_matching() {
+    let mut edited = Searcher::build(&library(), &SearchOptions::default());
+    assert_eq!(hits(&edited, "ano"), [1], "only the book said it");
+
+    edited.replace_field(1, "title", "The Other Book");
+    edited.settle("ano");
+
+    assert_eq!(hits(&edited, "ano"), [] as [usize; 0]);
+    assert_eq!(hits(&edited, "oth"), [1], "the word that replaced it");
+}
+
+#[test]
 fn a_field_replaced_in_the_index_answers_like_a_library_indexed_again() {
     let before = library();
     let indexed = Searcher::build(&before, &SearchOptions::default());
@@ -54,6 +87,9 @@ fn a_field_replaced_in_the_index_answers_like_a_library_indexed_again() {
     let mut edited = indexed;
     edited.replace_field(1, "title", "The Other Book");
     edited.replace_field(1, "author", "Jones, Anna");
+    // A short term is answered from tables an edit drops until a query asks for
+    // them, so the comparison only means anything once they are laid out.
+    edited.settle("sm");
 
     for query in queries() {
         assert_eq!(
