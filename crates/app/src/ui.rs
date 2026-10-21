@@ -70,6 +70,13 @@ pub struct App {
     /// A row the table should bring into view on the next frame, which is what a
     /// keyboard move out of sight asks for.
     scroll_to: Option<usize>,
+    /// The field of the selected row a key asked for the cursor to go to, cleared
+    /// by the pane's own frame.
+    focus_field: Option<usize>,
+    /// The field whose box held the cursor when the pane was last drawn.
+    focused_field: Option<usize>,
+    /// Whether `Shift` was held when the keys were read, which turns `Tab` around.
+    shift_tab: bool,
 }
 
 impl App {
@@ -99,6 +106,9 @@ impl App {
             draft: None,
             focus_filter: false,
             scroll_to: None,
+            focus_field: None,
+            focused_field: None,
+            shift_tab: false,
         }
     }
 
@@ -237,6 +247,16 @@ impl App {
         ctx.memory(|memory| memory.has_focus(egui::Id::new(FILTER_ID)))
     }
 
+    /// Whether a field box of the detail pane holds the cursor.
+    pub fn field_focused(&self) -> bool {
+        self.focused_field.is_some()
+    }
+
+    /// Which field of the entry the cursor is in, counted in file order.
+    pub fn focused_field(&self) -> Option<usize> {
+        self.focused_field
+    }
+
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             if ui.button("Open").on_hover_text("Ctrl+O").clicked() {
@@ -321,7 +341,9 @@ impl App {
         // belong to the text inside it. Asking takes the input lock, so it is asked
         // before the lock is held rather than from inside.
         let typing = ctx.wants_keyboard_input();
-        let (open, save, find, undo, redo, down, up) = ctx.input(|i| {
+        let in_field = self.focused_field.is_some();
+        self.shift_tab = ctx.input(|i| i.modifiers.shift);
+        let (open, save, find, fields, undo, redo, down, up, tab, escape) = ctx.input(|i| {
             let command = i.modifiers.command;
             let plain = command && !i.modifiers.shift;
             let undo = plain && i.key_pressed(egui::Key::Z);
@@ -331,10 +353,16 @@ impl App {
                 plain && i.key_pressed(egui::Key::O),
                 plain && i.key_pressed(egui::Key::S),
                 plain && i.key_pressed(egui::Key::F),
+                plain && i.key_pressed(egui::Key::D),
                 undo,
                 redo,
                 !typing && i.key_pressed(egui::Key::ArrowDown),
                 !typing && i.key_pressed(egui::Key::ArrowUp),
+                // Tab walks the fields of the entry the pane is showing, which is
+                // what makes the pane reachable without a click. Elsewhere it is
+                // left to egui, which moves through the toolbar and the facets.
+                in_field && i.key_pressed(egui::Key::Tab),
+                in_field && i.key_pressed(egui::Key::Escape),
             )
         });
         if open {
@@ -346,6 +374,9 @@ impl App {
         if find {
             self.focus_filter = true;
         }
+        if fields {
+            self.focus_field = Some(0);
+        }
         if undo {
             self.undo();
         } else if redo {
@@ -356,6 +387,38 @@ impl App {
         } else if up {
             self.move_selection(-1);
         }
+        if tab {
+            self.step_field();
+        }
+        if escape {
+            if let Some(focused) = ctx.memory(|memory| memory.focused()) {
+                ctx.memory_mut(|memory| memory.surrender_focus(focused));
+            }
+        }
+    }
+
+    /// Moves the cursor to the next or previous field of the entry, wrapping at
+    /// either end so a user pressing Tab repeatedly cycles the whole entry.
+    fn step_field(&mut self) {
+        let (Some(current), Some(count)) = (self.focused_field, self.field_count()) else {
+            return;
+        };
+        if count == 0 {
+            return;
+        }
+        let step = if self.shift_tab { count - 1 } else { 1 };
+        self.focus_field = Some((current + step) % count);
+    }
+
+    /// How many fields the entry on display has.
+    fn field_count(&self) -> Option<usize> {
+        let row = self.selected?;
+        self.session
+            .as_ref()?
+            .library()
+            .entries()
+            .get(row)
+            .map(|entry| entry.fields.len())
     }
 
     /// Opens the platform's file dialog, which blocks until the user answers.
@@ -595,8 +658,14 @@ impl App {
             .resizable(true)
             .default_width(340.0)
             .show(ctx, |ui| {
-                let outcome =
-                    detail::show(ui, self.session.as_mut(), self.selected, &mut self.draft);
+                let outcome = detail::show(
+                    ui,
+                    self.session.as_mut(),
+                    self.selected,
+                    &mut self.draft,
+                    &mut self.focus_field,
+                    &mut self.focused_field,
+                );
                 if outcome == Outcome::Edited {
                     self.status = String::from("Edited, not saved yet");
                     if let Some(session) = &mut self.session {

@@ -25,13 +25,19 @@ pub enum Outcome {
     Edited,
 }
 
-/// Draws the fields of one entry, or a hint when nothing is selected.
+/// Draws the fields of one entry, or a hint when nothing is selected. `focus` is
+/// the field a key asked for, honoured on this frame only; `focused` reports which
+/// box holds the cursor, so a key can walk the entry without knowing widget ids.
 pub fn show(
     ui: &mut Ui,
     session: Option<&mut Session>,
     row: Option<usize>,
     draft: &mut Option<Draft>,
+    focus: &mut Option<usize>,
+    focused: &mut Option<usize>,
 ) -> Outcome {
+    let wanted = focus.take();
+    *focused = None;
     let (Some(session), Some(row)) = (session, row) else {
         ui.weak("Select an entry to see its fields.");
         return Outcome::Idle;
@@ -86,7 +92,26 @@ pub fn show(
                                 .desired_width(width)
                                 .id_salt(("field", row, index)),
                         );
+                        // Tab and Escape belong to the pane while a box holds the
+                        // cursor: egui would otherwise take both and move the
+                        // cursor mid-frame, before the key could be acted on.
                         if response.has_focus() {
+                            ui.memory_mut(|memory| {
+                                memory.set_focus_lock_filter(
+                                    response.id,
+                                    egui::EventFilter {
+                                        tab: true,
+                                        escape: true,
+                                        ..Default::default()
+                                    },
+                                );
+                            });
+                        }
+                        if wanted == Some(index) {
+                            response.request_focus();
+                        }
+                        if response.has_focus() {
+                            *focused = Some(index);
                             *draft = Some(Draft {
                                 row,
                                 field: index,
