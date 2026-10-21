@@ -1,0 +1,23 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/bib",
+    "crates/index",
+    "crates/store",
+    "crates/app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["citerack contributors"]
+repository = "https://github.com/emfox/citerack"
+publish = false
+
+[workspace.dependencies]
+citerack-bib = { path = "crates/bib" }
+citerack-index = { path = "crates/index" }
+citerack-store = { path = "crates/store" }
+memchr = "2.7"
