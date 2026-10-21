@@ -3,12 +3,15 @@
 //! computed before one exists.
 
 mod fold;
+mod inverted;
 mod matcher;
 mod search;
 mod sort;
+mod token;
 
 pub use fold::fold;
-pub use matcher::{FieldRef, Hit, Matcher};
+pub use inverted::{InvertedIndex, WINDOW};
+pub use matcher::{FieldRef, Matcher};
 pub use search::{SearchOptions, SearchResult, Searcher};
 pub use sort::{SortField, SortKey, SortSpec};
 

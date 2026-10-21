@@ -110,6 +110,11 @@ impl Session {
         result
     }
 
+    /// Prints what the index holds for each term of a query, for a report.
+    pub fn explain(&self, query: &str) {
+        self.searcher.explain(query);
+    }
+
     /// Restores every row and the file order.
     pub fn clear_search(&mut self) {
         self.order = (0..self.library.len()).collect();

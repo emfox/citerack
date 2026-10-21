@@ -12,6 +12,7 @@ Usage:
     citerack [FILE.bib]            open a library in a window
     citerack --open-time FILE.bib  parse and index, print the timings, exit
     citerack --search QUERY FILE   print the first rows a query matches, exit
+    citerack --explain QUERY FILE  print what the index holds per term, exit
     citerack --version             print the version
     citerack --help                print this text
 ";
@@ -30,6 +31,10 @@ fn main() -> ExitCode {
         Some("--search") => match (args.next(), args.next()) {
             (Some(query), Some(path)) => search(PathBuf::from(path), &query),
             _ => usage_error("--search needs a query and a file"),
+        },
+        Some("--explain") => match (args.next(), args.next()) {
+            (Some(query), Some(path)) => explain(PathBuf::from(path), &query),
+            _ => usage_error("--explain needs a query and a file"),
         },
         Some("--open-time") => match args.next() {
             Some(path) => open_time(PathBuf::from(path)),
@@ -95,6 +100,21 @@ fn search(path: PathBuf, query: &str) -> ExitCode {
         println!("  {:<24} {}", entry.key, entry.field("title").unwrap_or(""));
     }
     ExitCode::SUCCESS
+}
+
+/// Prints what the index holds for each term of a query, which is how a slow or
+/// empty result is explained without a window.
+fn explain(path: PathBuf, query: &str) -> ExitCode {
+    match Session::open(&path) {
+        Ok(session) => {
+            session.explain(query);
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("{}: {err}", path.display());
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn gui(path: Option<PathBuf>) -> ExitCode {

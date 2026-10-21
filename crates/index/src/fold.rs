@@ -33,7 +33,16 @@ pub fn fold_char(c: char) -> char {
     }
 }
 
-/// Folds a string the same way [`fold_char`] folds one character.
+/// Folds a string the same way [`fold_char`] folds one character. Folding never
+/// lengthens a character in bytes, so the result fits in the input's own size and
+/// is reserved once rather than grown per field.
 pub fn fold(text: &str) -> String {
-    text.chars().map(fold_char).collect()
+    // ASCII, which is most of a bibliography, folds to itself and is not walked
+    // by character.
+    if text.is_ascii() {
+        return text.to_ascii_lowercase();
+    }
+    let mut out = String::with_capacity(text.len());
+    out.extend(text.chars().map(fold_char));
+    out
 }

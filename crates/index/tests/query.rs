@@ -88,9 +88,9 @@ fn the_order_of_terms_does_not_matter() {
 fn a_limit_stops_the_row_list_but_not_the_count() {
     let lib = library();
     let searcher = Searcher::build(&lib, &SearchOptions::default());
-    let result = searcher.search(&Matcher::new("a"), Some(1));
-    assert_eq!(result.rows.len(), 1);
-    assert!(result.total >= 2);
+    let result = searcher.search(&Matcher::new("galaxy"), Some(1));
+    assert_eq!(result.rows, vec![1]);
+    assert_eq!(result.total, 1);
 }
 
 #[test]
@@ -185,4 +185,74 @@ fn an_entry_without_a_year_sorts_before_one_that_has_it() {
     .unwrap();
     assert_eq!(SortKey::of(&lib, 0).year, 0);
     assert_eq!(SortKey::of(&lib, 1).year, 2020);
+}
+
+/// A query answers exactly what a scan of every cell would, whatever shape the
+/// term has: a whole word, a word prefix, a fragment of a word, or nothing.
+#[test]
+fn the_index_agrees_with_a_full_scan() {
+    let lib = library();
+    let searcher = Searcher::build(&lib, &SearchOptions::default());
+    for query in [
+        "",
+        "a",
+        "an",
+        "art",
+        "indexing",
+        "ide",
+        "dex",
+        "zhao",
+        "2024",
+        "guide galaxy",
+        "o",
+        "muller",
+        "M{\\\"u}ller",
+        "fast filters",
+        "nothing",
+    ] {
+        let matcher = Matcher::new(query);
+        assert_eq!(
+            searcher.search(&matcher, None).rows,
+            searcher.scan_rows(&matcher),
+            "query {query:?} answered differently by the index"
+        );
+    }
+}
+
+/// A generated library the size of a real one, written the way one is.
+fn large(entries: usize) -> citerack_bib::Library {
+    let mut text = String::new();
+    for i in 0..entries {
+        text.push_str(&format!(
+            "@article{{key{i:05},\n  author = {{Surname{i}, Given and Other}},\n  \
+             title = {{A Study of Something Number {i} in Distributed Systems}},\n  \
+             journal = {{Journal of Things}},\n  year = {{2024}},\n  abstract = {{The quick brown \
+             fox jumps over the lazy dog while indexing happens.}}\n}}\n\n"
+        ));
+    }
+    parse_str(&text, &Default::default()).unwrap()
+}
+
+/// The index answers what a scan answers on a library far larger than a test's
+/// sample, including a term that only a part of the rows hold.
+#[test]
+fn the_index_agrees_with_a_full_scan_on_a_large_library() {
+    let lib = large(20_000);
+    let searcher = Searcher::build(&lib, &SearchOptions::default());
+    for query in [
+        "surname199",
+        "fox",
+        "study something",
+        "2024",
+        "article",
+        "xyz",
+        "othing 199",
+    ] {
+        let matcher = Matcher::new(query);
+        assert_eq!(
+            searcher.search(&matcher, None).rows,
+            searcher.scan_rows(&matcher),
+            "query {query:?} answered differently by the index"
+        );
+    }
 }

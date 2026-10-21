@@ -3,7 +3,8 @@
 use citerack_bib::Library;
 
 use crate::fold::fold;
-use crate::matcher::{FieldRef, Hit, Matcher};
+use crate::inverted::InvertedIndex;
+use crate::matcher::{FieldRef, Matcher};
 
 /// Which fields a search looks at.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,9 +36,10 @@ pub struct SearchResult {
     pub total: usize,
 }
 
-/// The folded text of every entry, arranged so a query touches each byte once.
+/// The folded text of every entry, arranged so a query reads its own matches.
 pub struct Searcher {
     columns: Vec<Column>,
+    fold_key: bool,
 }
 
 /// One field's folded values, one per entry, with `None` where an entry lacks it.
@@ -45,11 +47,13 @@ struct Column {
     field: FieldRef,
     name: String,
     values: Vec<Option<String>>,
+    inverted: InvertedIndex,
 }
 
 impl Searcher {
-    /// Folds every searched field of every entry. This is the only pass that
-    /// costs time proportional to the text, so it runs before a window opens.
+    /// Folds every searched field of every entry and indexes it. This is the only
+    /// pass that costs time proportional to the text, so it runs before a window
+    /// opens; a query afterwards reads the candidates the index names.
     pub fn build(library: &Library, options: &SearchOptions) -> Self {
         let mut names: Vec<String> = Vec::new();
         for entry in library.entries() {
@@ -71,21 +75,13 @@ impl Searcher {
                 .iter()
                 .map(|e| Some(fold(&e.key)))
                 .collect();
-            columns.push(Column {
-                field: FieldRef::Key,
-                name: String::from("key"),
-                values,
-            });
+            columns.push(Column::new(FieldRef::Key, String::from("key"), values));
             let values = library
                 .entries()
                 .iter()
                 .map(|e| Some(fold(e.kind.as_str())))
                 .collect();
-            columns.push(Column {
-                field: FieldRef::Kind,
-                name: String::from("type"),
-                values,
-            });
+            columns.push(Column::new(FieldRef::Kind, String::from("type"), values));
         }
         for (idx, name) in names.iter().enumerate() {
             let mut values = vec![None; n];
@@ -94,13 +90,12 @@ impl Searcher {
                     values[row] = Some(fold(raw));
                 }
             }
-            columns.push(Column {
-                field: FieldRef::Named(idx),
-                name: name.clone(),
-                values,
-            });
+            columns.push(Column::new(FieldRef::Named(idx), name.clone(), values));
         }
-        Self { columns }
+        Self {
+            columns,
+            fold_key: options.include_key,
+        }
     }
 
     /// The field names this searcher covers, excluding key and type.
@@ -112,31 +107,195 @@ impl Searcher {
             .collect()
     }
 
-    /// Every entry whose any field matches, with the best hit in that entry.
+    /// Every entry that holds all of the query's terms; an exact matcher keeps
+    /// only the entry whose key is the query, and a key lookup ignores the
+    /// configured fields, as a citation key is always searchable.
     pub fn search(&self, matcher: &Matcher, limit: Option<usize>) -> SearchResult {
-        let rows = self.columns.first().map_or(0, |c| c.values.len());
-        let mut out = Vec::new();
-        let mut total = 0usize;
-        for row in 0..rows {
-            let mut best: Option<Hit> = None;
-            for column in &self.columns {
-                let Some(Some(text)) = column.values.get(row) else {
-                    continue;
-                };
-                if let Some(hit) = matcher.matches(column.field, text) {
-                    best = Some(match best {
-                        Some(prev) if prev.end - prev.start >= hit.end - hit.start => prev,
-                        _ => hit,
-                    });
-                }
-            }
-            if best.is_some() {
-                total += 1;
-                if limit.is_none_or(|l| out.len() < l) {
-                    out.push(row);
-                }
+        let rows = if matcher.is_exact() {
+            self.exact_rows(matcher)
+        } else if matcher.is_empty() {
+            (0..self.row_count()).map(|row| row as u32).collect()
+        } else {
+            self.matching_rows(matcher).unwrap_or_default()
+        };
+        finish(rows, limit)
+    }
+
+    /// The rows holding every term, narrowed by the rarest term first. A query costs
+    /// the lists it names, never a walk over the library, and a term nobody wrote
+    /// ends the search before a single row is read.
+    fn matching_rows(&self, matcher: &Matcher) -> Option<Vec<u32>> {
+        let mut lists: Vec<Vec<u32>> = matcher
+            .terms()
+            .iter()
+            .map(|term| self.rows_holding(term))
+            .collect();
+        if lists.iter().any(Vec::is_empty) {
+            return None;
+        }
+        // The rarest term decides who is examined, and the rest are asked about
+        // those rows only, so nothing outside the shortest list is ever read.
+        lists.sort_unstable_by_key(Vec::len);
+        let mut rows = lists.remove(0);
+        for other in &lists {
+            rows = intersect(&rows, other);
+            if rows.is_empty() {
+                return None;
             }
         }
-        SearchResult { rows: out, total }
+        Some(rows)
+    }
+
+    /// The rows holding `term`, in ascending order and each once. Every column
+    /// answers by lookup, so no row is read to confirm an answer.
+    fn rows_holding(&self, term: &str) -> Vec<u32> {
+        let mut rows: Vec<u32> = Vec::new();
+        for column in &self.columns {
+            rows.extend_from_slice(&column.inverted.rows_with(term));
+        }
+        rows.sort_unstable();
+        rows.dedup();
+        rows
+    }
+
+    /// The rows whose citation key is exactly the query.
+    fn exact_rows(&self, matcher: &Matcher) -> Vec<u32> {
+        if !self.fold_key {
+            return Vec::new();
+        }
+        let Some(key) = self.columns.first() else {
+            return Vec::new();
+        };
+        let Some(term) = matcher.terms().first() else {
+            return Vec::new();
+        };
+        key.inverted
+            .rows_with(term)
+            .into_iter()
+            .filter(|row| {
+                key.values
+                    .get(*row as usize)
+                    .and_then(Option::as_deref)
+                    .is_some_and(|text| text == term)
+            })
+            .collect()
+    }
+
+    /// Prints what every column holds for each term of a query, so a search that
+    /// returns too much or too little is traced to a column. The query is folded
+    /// and cut first, as a search does it.
+    pub fn explain(&self, query: &str) {
+        for term in Matcher::new(query).terms() {
+            println!("term {term:?}");
+            for column in &self.columns {
+                println!(
+                    "  {:<14} {:>7} rows  {:>8} runs  {:>7} words",
+                    column.name,
+                    column.inverted.rows_with(term).len(),
+                    column.inverted.run_count(),
+                    column.inverted.word_count()
+                );
+            }
+        }
+    }
+
+    /// Prints how many postings each column holds, which is where the build's
+    /// memory goes and which column a saving would have to come from.
+    pub fn report(&self) {
+        let mut rows: Vec<(&str, usize, usize, usize)> = self
+            .columns
+            .iter()
+            .map(|c| {
+                (
+                    c.name.as_str(),
+                    c.inverted.posting_count(),
+                    c.inverted.run_count(),
+                    c.inverted.word_count(),
+                )
+            })
+            .collect();
+        rows.sort_unstable_by_key(|(_, postings, _, _)| std::cmp::Reverse(*postings));
+        let total: usize = rows.iter().map(|(_, p, _, _)| p).sum();
+        for (name, postings, runs, words) in rows {
+            println!(
+                "{name:<16} {postings:>10} postings  {runs:>7} runs  {words:>7} words  {:>5.1}%",
+                postings as f64 * 100.0 / total as f64
+            );
+        }
+        println!("{:<16} {total:>10} postings", "total");
+    }
+
+    /// How many postings the whole index holds, for a memory report.
+    pub fn posting_total(&self) -> usize {
+        self.columns
+            .iter()
+            .map(|c| c.inverted.posting_count())
+            .sum()
+    }
+
+    /// How many distinct runs the whole index holds, for a memory report.
+    pub fn run_total(&self) -> usize {
+        self.columns.iter().map(|c| c.inverted.run_count()).sum()
+    }
+
+    /// The rows a full scan of every cell would return, so a test can hold the
+    /// index to the answer it has to reproduce.
+    pub fn scan_rows(&self, matcher: &Matcher) -> Vec<usize> {
+        (0..self.row_count())
+            .filter(|row| {
+                self.columns.iter().any(|column| {
+                    column
+                        .values
+                        .get(*row)
+                        .and_then(Option::as_deref)
+                        .is_some_and(|text| matcher.matches(text))
+                })
+            })
+            .collect()
+    }
+
+    /// How many rows the index covers.
+    fn row_count(&self) -> usize {
+        self.columns.first().map_or(0, |c| c.values.len())
+    }
+}
+
+impl Column {
+    fn new(field: FieldRef, name: String, values: Vec<Option<String>>) -> Self {
+        let inverted = InvertedIndex::build(&values);
+        Self {
+            field,
+            name,
+            values,
+            inverted,
+        }
+    }
+}
+
+/// The rows both lists hold, each walked once.
+fn intersect(a: &[u32], b: &[u32]) -> Vec<u32> {
+    let mut out = Vec::new();
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        match a[i].cmp(&b[j]) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => {
+                out.push(a[i]);
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Counts every match, then applies the limit to the row list alone.
+fn finish(rows: Vec<u32>, limit: Option<usize>) -> SearchResult {
+    let total = rows.len();
+    let keep = limit.map_or(total, |limit| total.min(limit));
+    SearchResult {
+        rows: rows[..keep].iter().map(|row| *row as usize).collect(),
+        total,
     }
 }

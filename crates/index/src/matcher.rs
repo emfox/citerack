@@ -1,6 +1,7 @@
 //! A compiled query, evaluated against one field at a time.
 
 use crate::fold::fold;
+use crate::token::terms;
 
 /// Which field a hit came from, so the result list can say so.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,17 +14,6 @@ pub enum FieldRef {
     Named(usize),
 }
 
-/// Where a query matched, as a byte range into the folded text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Hit {
-    /// Which field matched.
-    pub field: FieldRef,
-    /// First byte of the match.
-    pub start: usize,
-    /// One past the last byte of the match.
-    pub end: usize,
-}
-
 /// One or more terms that all have to match, in any field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Matcher {
@@ -33,10 +23,15 @@ pub struct Matcher {
 }
 
 impl Matcher {
-    /// Compiles a query, folding it the way the index folded the text; a query of
-    /// only whitespace matches every row, as an empty search box should.
+    /// Compiles a query, folding and cutting it the way the index did the text, so
+    /// a pasted `M{\"u}ller` finds the entry keyed under `m`. A query of only
+    /// whitespace has no terms and matches every row, as an empty box should.
     pub fn new(query: &str) -> Self {
-        let terms = query.split_whitespace().map(fold).collect();
+        let folded = fold(query);
+        let terms = terms(&folded)
+            .iter()
+            .map(|term| folded[term.start..term.end].to_owned())
+            .collect();
         Self {
             terms,
             exact: false,
@@ -56,35 +51,25 @@ impl Matcher {
         self.terms.is_empty()
     }
 
+    /// Whether this matcher accepts only a whole-field match.
+    pub fn is_exact(&self) -> bool {
+        self.exact
+    }
+
     /// The terms, folded, in the order the caller wrote them.
     pub fn terms(&self) -> &[String] {
         &self.terms
     }
 
-    /// Every term is present in the field, in any order.
-    pub fn matches(&self, field: FieldRef, folded_text: &str) -> Option<Hit> {
-        if self.terms.is_empty() {
-            return Some(Hit {
-                field,
-                start: 0,
-                end: 0,
-            });
-        }
-        let mut first: Option<(usize, usize)> = None;
-        for term in &self.terms {
-            let at = if self.exact {
-                (folded_text == term).then_some(0)
+    /// Every term is present in the field, in any order; the caller narrows the
+    /// rows with the index first, so this decides the answer per candidate.
+    pub fn matches(&self, folded_text: &str) -> bool {
+        self.terms.iter().all(|term| {
+            if self.exact {
+                folded_text == term
             } else {
-                memchr::memmem::find(folded_text.as_bytes(), term.as_bytes())
-            };
-            let at = at?;
-            let end = at + term.len();
-            first = Some(match first {
-                Some((s, e)) => (s.min(at), e.max(end)),
-                None => (at, end),
-            });
-        }
-        let (start, end) = first?;
-        Some(Hit { field, start, end })
+                folded_text.contains(term.as_str())
+            }
+        })
     }
 }

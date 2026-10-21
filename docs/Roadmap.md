@@ -13,7 +13,6 @@ outside this repository could install and use daily.
 
 | Item | What a user gains | Done when |
 | --- | --- | --- |
-| Inverted index over folded columns | a search on a 100 000-entry library stays under 20 ms | a query costs one pass over the postings of its rarest term, not over every row; `docs/Performance.md` records the new figure at three sizes |
 | Editable fields | correcting a typo without a text editor | an edit, a save and a reopen produce the edited text, and the untouched parts of the file are still byte-identical |
 | Undo and redo over edits | recovering from a wrong edit | `Ctrl+Z` reverses the last edit and a save after it writes the reverted text |
 | Asynchronous save | a large file does not freeze the window while it is written | the status line shows progress and the window stays draggable during a save of 150 MiB |

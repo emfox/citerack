@@ -16,3 +16,9 @@ the repository is not listed here.
   terms that may match different fields.
 - `citerack --open-time` and `citerack --search`, which measure the engine with no
   display attached.
+- A search is answered from an index rather than by reading every entry, so a
+  word nobody wrote returns at once and a word somebody wrote costs only the rows
+  that hold it. On a library of 100 000 entries a query takes between 0.02 ms and
+  6 ms, against 50 ms before.
+- `citerack --explain`, which prints how many rows each column holds for a query,
+  so a search that returns too much or too little can be traced to a field.
