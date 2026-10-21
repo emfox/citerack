@@ -173,3 +173,17 @@ where it stopped and the reader's next move is to open the file at that line.
   the parser, and a bar that lies about how far along it is costs more trust
   than the absence of one costs patience. The spinner says "working", which is
   all that is known.
+
+## 10. How these claims are tested
+
+The window is drawn by a function that takes a context, so a test can call it
+without an event loop or a display. The test harness sends clicks and keystrokes
+through the same input a window sends, and reads the result back from the
+accessibility tree rather than from a screenshot: a field is found by the value
+it holds, and the claim that a value was committed is checked against the
+library behind the window.
+
+Two limits are worth knowing before writing one of these tests. A frame that
+carries a key event ends the pass, so a test that needs several keystrokes runs
+a frame between them. Text typed into a box arrives as one event, which is what
+a paste looks like; a test that wants to replace a value empties the box first.

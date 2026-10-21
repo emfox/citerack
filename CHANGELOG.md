@@ -56,3 +56,7 @@ the repository is not listed here.
   full reindex used to take, because the index is rebuilt before the next search
   rather than on every edit.
 - Save carries a `*` while an edit is unsaved.
+- A command line, a window and an empty library are now checked without a display:
+  the detail pane is opened, typed into and read back from the accessibility tree,
+  so an edit that stops reaching the window fails in a test rather than in a
+  screenshot a person had to take.
