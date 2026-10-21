@@ -49,6 +49,8 @@ find the table in the middle and the fields on the right without being told.
 | Sort by Key / Author / Year / Title | sorts by that column; clicking the active one reverses it |
 | Save | writes the file back, byte for byte outside the fields that were edited |
 | Duplicates N | narrows the table to the entries in a duplicate pair, and back |
+| Key `{author}{year}` | the pattern a generated key follows, read as it is typed |
+| Generate keys | gives every entry the key the Generated column shows |
 
 The sort buttons carry `^` or `v` showing the direction. Clicking a different
 field sorts it ascending; clicking the same field again flips the direction.
@@ -99,6 +101,7 @@ cap exists. The duration is there so a slow query is visible rather than felt.
 | Title | title | truncated with an ellipsis, never wrapped |
 | Year | four digits, right-aligned | right-aligned so a column of years reads as numbers |
 | Venue | journal, else book title, else publisher | one column, because a reader scans for "where" |
+| Generated | the key the pattern makes for this row | what `Generate keys` would write; a key already taken keeps its letter |
 
 Rows are one line tall and every cell truncates rather than wraps. A wrapped row
 makes the position of the next row depend on the length of a title, which is
@@ -110,9 +113,50 @@ that lays out every row is the second-most common way a bibliography tool
 freezes, after parsing on the UI thread.
 
 Clicking a row selects it and fills the detail pane. Arrow keys move the
-selection once the table has focus.
+selection once the table has focus. Double-clicking a row gives that entry the key
+its own row shows in the Generated column, which is one gesture for one entry rather
+than a trip to the toolbar.
 
-## 5. Detail pane
+## 5. Generated keys
+
+A citation key is how a manuscript names an entry, and a library typed from PDFs
+arrives with keys like `Smith2019a` or `paper2`, or with none worth reading. The
+pattern turns the fields an entry already holds into a key, and the column shows
+the answer before anything in the file moves.
+
+**The pattern** is literal text and `{field}` references:
+
+| Written | Means |
+| --- | --- |
+| `{author}{year}` | the default: the first surname, then the year |
+| `{author:l}` | lower case, so `erdos` |
+| `{author:u}` | upper case, so `ERDOS` |
+| `{title:2}` | the first two words of the title |
+| `{author:3:1}` | three words of the author, one letter each, joined by `-` |
+| `_`, `:` | literal text, carried into the key as written |
+
+Accents are folded, so `Erd{\H o}s` names an entry `Erdos`, which is a key a
+manuscript can hold. A field the entry does not have writes nothing at all, so a
+pattern asking for a journal still works on the entries that have none.
+
+A pattern that names no field is refused, as is one with a `{` never closed or a
+literal space, because none of those can name an entry. The reason is drawn in red
+beside the box and the setting is left as it was: a half-typed pattern stays a
+half-typed pattern rather than becoming a broken library.
+
+**Collisions.** Two entries of one paper make the same key. The second takes a
+letter — `Smith2024`, then `Smith2024a`, then `Smith2024b` — rather than overwriting
+the first, because a key naming two entries is a citation pointing at the wrong one.
+The suffix is the one BibTeX users already read.
+
+**What a press writes.** `Generate keys` writes the column's key for every row.
+Pressing it twice changes nothing the second time, since every key already says what
+the pattern says, and the status line says so rather than pretending to work. A key
+somebody wrote on purpose is replaced like any other: the column and the button say
+what a press would do, and a button that silently skipped rows would be a button
+whose count cannot be trusted. `Undo` takes a press back.
+
+## 6. Detail pane
 
 Shows the entry type and key as a header, then every field in the order the file
 listed them, with the field name in the weak colour and the value in the normal
@@ -170,7 +214,7 @@ and neither is a year alone: without both halves there is nothing to be confiden
 about, and a guess that is wrong costs more attention than a duplicate that went
 unreported.
 
-## 6. Groups
+## 7. Groups
 
 Four lists, in the order a reader narrows: **Author**, **Journal / Book**, **Year**
 and **Type**. Each value carries the number of rows pressing it would leave on the
@@ -234,7 +278,7 @@ was this published" does not care whether the file called it a journal, a book
 title or a publisher; the column takes journal, else book title, else publisher,
 and the list takes the same three in the same order.
 
-## 7. Keyboard
+## 8. Keyboard
 
 | Key | Where | Effect | Also a control |
 | --- | --- | --- | --- |
@@ -275,7 +319,7 @@ moving through the toolbar and the facets. `Escape` leaves the box and commits
 what was typed in it, exactly as clicking elsewhere in the pane would, so leaving
 a box never loses an edit.
 
-## 8. Empty and loading states
+## 9. Empty and loading states
 
 | State | What is drawn |
 | --- | --- |
@@ -287,7 +331,7 @@ a box never loses an edit.
 A parse error names a position rather than an entry, because the parser stops
 where it stopped and the reader's next move is to open the file at that line.
 
-## 9. What this spec refuses
+## 10. What this spec refuses
 
 - No modal dialog for anything this release does. A modal takes the keyboard away
   from a user who was typing.
@@ -299,7 +343,7 @@ where it stopped and the reader's next move is to open the file at that line.
   than the absence of one costs patience. The spinner says "working", which is
   all that is known.
 
-## 10. How these claims are tested
+## 11. How these claims are tested
 
 The window is drawn by a function that takes a context, so a test can call it
 without an event loop or a display. The test harness sends clicks and keystrokes
@@ -312,3 +356,9 @@ Two limits are worth knowing before writing one of these tests. A frame that
 carries a key event ends the pass, so a test that needs several keystrokes runs
 a frame between them. Text typed into a box arrives as one event, which is what
 a paste looks like; a test that wants to replace a value empties the box first.
+
+A third limit is the clock: the harness advances time by the frame's own length,
+so two clicks in two frames can fall outside the double-click window however close
+together they are typed. A test that wants a double click puts both press-and-release
+pairs in one `step`, at a point inside the row rather than at a node's center,
+because a cell's own widget takes the click at its center.

@@ -29,6 +29,9 @@ const LISTED: usize = 12;
 /// The filter box's id, which `Ctrl+F` needs to reach it before it is drawn.
 const FILTER_ID: &str = "filter_query";
 
+/// The key pattern's id, so a test can tell the setting apart from the fields.
+const PATTERN_ID: &str = "key_pattern";
+
 /// Opens the window on a library, or on an empty session prompting for one.
 pub fn run(path: Option<PathBuf>) -> eframe::Result<()> {
     let name = "citerack";
@@ -104,6 +107,11 @@ pub struct App {
     query: String,
     applied_query: String,
     query_changed_at: Option<Instant>,
+    /// The text in the key pattern box, which is what the user is in the middle of
+    /// writing and may not read as a pattern yet.
+    pattern: String,
+    /// Whether the next frame should put the caret in the pattern box.
+    focus_pattern: bool,
     selected: Option<usize>,
     sort: Option<SortSpec>,
     columns: Vec<Column>,
@@ -124,6 +132,8 @@ pub struct App {
     focused_field: Option<usize>,
     /// Whether `Shift` was held when the keys were read, which turns `Tab` around.
     shift_tab: bool,
+    /// The reason the key pattern in the box cannot be used, shown beside it.
+    refusal: String,
 }
 
 impl App {
@@ -144,6 +154,8 @@ impl App {
             query: String::new(),
             applied_query: String::new(),
             query_changed_at: None,
+            pattern: String::from(citerack_bib::DEFAULT_KEY_PATTERN),
+            focus_pattern: false,
             selected: None,
             sort: None,
             columns: Column::ALL.to_vec(),
@@ -156,6 +168,7 @@ impl App {
             focus_field: None,
             focused_field: None,
             shift_tab: false,
+            refusal: String::new(),
         }
     }
 
@@ -163,6 +176,7 @@ impl App {
     pub fn with_session(session: Session) -> Self {
         let mut app = Self::empty();
         app.status = format!("{} entries", session.len());
+        app.pattern = session.key_pattern();
         app.session = Some(session);
         app
     }
@@ -268,6 +282,12 @@ impl App {
         self.selected = row;
     }
 
+    /// Puts the caret in the key pattern box, the way a click there does, so a
+    /// test can type a pattern the file is not using yet.
+    pub fn focus_pattern(&mut self) {
+        self.focus_pattern = true;
+    }
+
     /// The row the detail pane is showing.
     pub fn selected(&self) -> Option<usize> {
         self.selected
@@ -358,8 +378,100 @@ impl App {
                 self.redo();
             }
             ui.separator();
+            self.keys(ui);
+            ui.separator();
             self.duplicates_button(ui);
         });
+    }
+
+    /// The key pattern and the button that gives every entry the key it makes.
+    /// The box is the setting and the button is the act, so a pattern can be
+    /// tried on the Generated column before anything in the file moves.
+    fn keys(&mut self, ui: &mut egui::Ui) {
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        ui.label("Key");
+        // The box keeps its own text, so a pattern the parser has not been given
+        // yet is still on screen to be finished. A pattern only reaches the
+        // session once it reads, which is why a refusal has to be drawn beside it.
+        let field = ui
+            .add_sized(
+                [150.0, 20.0],
+                egui::TextEdit::singleline(&mut self.pattern)
+                    .id_salt(PATTERN_ID)
+                    .hint_text(citerack_bib::DEFAULT_KEY_PATTERN),
+            )
+            .on_hover_text("the fields a generated key is made of, as {author}{year}");
+        if self.focus_pattern {
+            field.request_focus();
+            self.focus_pattern = false;
+        }
+        if field.changed() {
+            match session.set_key_pattern(&self.pattern) {
+                Ok(()) => {
+                    self.status = format!("Keys follow {}", self.pattern);
+                    self.refusal.clear();
+                }
+                Err(err) => self.refusal = format!("that pattern is not one: {err}"),
+            }
+        }
+        let enabled = self.session.as_ref().is_some_and(|s| !s.is_empty());
+        if ui
+            .add_enabled(enabled, egui::Button::new("Generate keys"))
+            .on_hover_text("give every entry whose key the pattern makes the key it makes now")
+            .clicked()
+        {
+            self.generate_all();
+        }
+        if !self.refusal.is_empty() {
+            ui.colored_label(egui::Color32::from_rgb(224, 122, 95), &self.refusal);
+        }
+    }
+
+    /// Gives the entry on a displayed row the key the Generated column shows
+    /// beside it, which is what a double click asks for.
+    fn generate_key(&mut self, row: usize) {
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        let Some(entry) = session.order().get(row).copied() else {
+            return;
+        };
+        let Some(now) = session.proposed_key_at(row) else {
+            return;
+        };
+        let was = session
+            .library()
+            .entries()
+            .get(entry)
+            .map(|entry| entry.key.to_string())
+            .unwrap_or_default();
+        match session.set_key(entry, &now) {
+            Ok(()) => {
+                self.status = format!("Renamed {was} to {now}");
+                session.edited_at(Instant::now());
+            }
+            Err(err) => self.status = err.as_str().to_owned(),
+        }
+    }
+
+    /// Gives every entry whose key the pattern makes the key it makes now.
+    fn generate_all(&mut self) {
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        match session.generate_keys() {
+            Ok(0) => {
+                self.status =
+                    String::from("Every key already follows the pattern, or was written by hand");
+            }
+            Ok(written) => {
+                self.status = format!("Renamed {written} keys, not saved yet");
+                session.edited_at(Instant::now());
+            }
+            Err(err) => self.status = err.as_str().to_owned(),
+        }
     }
 
     /// The button that narrows the table to the entries in a duplicate pair. It
@@ -715,6 +827,9 @@ impl App {
         let selected = self.selected;
         let session = self.session.as_ref();
         let mut clicked = None;
+        // The key a double click writes, which is the one the Generated column
+        // already shows for that row.
+        let mut rename = None;
 
         let mut table = TableBuilder::new(ui)
             .striped(true)
@@ -744,7 +859,12 @@ impl App {
                     let entry = entry_at(session, index);
                     for column in &self.columns {
                         row.col(|ui| {
-                            let text = column.cell(entry);
+                            let text = match column {
+                                Column::Generated => session
+                                    .and_then(|s| s.proposed_key_at(index))
+                                    .unwrap_or_default(),
+                                _ => column.cell(entry),
+                            };
                             if column.is_numeric() {
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     ui.add(Label::new(text).truncate());
@@ -754,8 +874,14 @@ impl App {
                             }
                         });
                     }
-                    if row.response().clicked() {
+                    let response = row.response();
+                    if response.clicked() {
                         clicked = Some(index);
+                    }
+                    // A second click on a row gives its entry the key the next
+                    // column shows, which is one gesture for one entry.
+                    if response.double_clicked() {
+                        rename = Some(index);
                     }
                 });
             });
@@ -765,6 +891,9 @@ impl App {
                 self.draft = None;
             }
             self.selected = Some(index);
+        }
+        if let Some(index) = rename {
+            self.generate_key(index);
         }
     }
 

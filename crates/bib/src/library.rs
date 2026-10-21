@@ -269,6 +269,15 @@ impl Library {
         self.commit(id, next)
     }
 
+    /// The entries whose citation key is `key`, compared exactly, so a caller can
+    /// tell whether a key it is about to write would name a second entry too.
+    pub fn keyed(&self, key: &str) -> usize {
+        self.entries
+            .iter()
+            .filter(|e| e.key.as_ref() == key)
+            .count()
+    }
+
     /// Renames an entry's citation key, keeping its type and every field.
     pub fn set_key(&mut self, id: EntryId, key: &str) -> Result<(), EditError> {
         self.rename_key(id, key).map(drop)

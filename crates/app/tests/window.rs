@@ -51,13 +51,14 @@ fn opened() -> Harness<'static, App> {
     harness
 }
 
-/// The value of every field box, in the order the pane draws them. The filter
-/// box is a text input too and comes first, hence the skip.
+/// The value of every field box, in the order the pane draws them. The filter and
+/// the key pattern are text inputs too, and a field's box is the only one drawn
+/// inside the right-hand pane.
 fn boxes(harness: &Harness<'_, App>) -> Vec<String> {
     harness
         .query_all_by_role(Role::TextInput)
+        .filter(|node| node.rect().min.x > 600.0)
         .filter_map(|node| node.value())
-        .skip(1)
         .collect()
 }
 
@@ -979,4 +980,171 @@ fn a_misc_asks_for_no_field_it_does_not_have() {
         0,
         "a type with nothing required says nothing about what it wants"
     );
+}
+
+/// A library whose keys are its author's own work, so a generated key has
+/// something to replace.
+const NAMED: &str = "\
+@Article{first,
+  Author   = {Smith, John},
+  Title    = {A Study of Braces},
+  Year     = 2024,
+}
+
+@Article{second,
+  Author   = {Smith, John},
+  Title    = {Another Study},
+  Year     = 2024,
+}
+";
+
+fn named() -> Harness<'static, App> {
+    let session = Session::from_text(
+        PathBuf::from("named.bib"),
+        NAMED,
+        &citerack_bib::ParseOptions { recover: true },
+    )
+    .expect("the input parses");
+    harness(App::with_session(session))
+}
+
+#[test]
+fn the_table_shows_the_key_the_pattern_would_write() {
+    let mut harness = named();
+    harness.state_mut().select(Some(0));
+    harness.run();
+
+    // The second entry cannot have the key the first one's own fields make, so
+    // the column letters it rather than showing one key twice.
+    let session = harness.state().session().unwrap();
+    assert_eq!(
+        session.proposed_keys(),
+        ["Smith2024", "Smith2024a"],
+        "two entries never end up with one key"
+    );
+    // The table draws the entries in the order the library holds them, and the
+    // lettered key is the second one's.
+    assert_eq!(session.len(), 2);
+    assert_eq!(session.order(), [0, 1], "the table keeps the file order");
+    assert_eq!(
+        harness.query_all_by_label("Smith2024").count(),
+        1,
+        "the first row shows the plain key"
+    );
+    assert_eq!(
+        harness.query_all_by_label("Smith2024a").count(),
+        1,
+        "the second row shows the letter, since the plain key is taken"
+    );
+}
+
+#[test]
+fn a_bad_pattern_says_why_and_the_keys_go_on_as_they_were() {
+    let mut harness = named();
+    harness.run();
+    // A brace opens a field and never closes it. The caret is put in the box
+    // before the brace is typed, so the brace lands at the end of the pattern
+    // the box already holds and the box says why it cannot be read.
+    harness.state_mut().focus_pattern();
+    harness.run();
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::Text(String::from("{")));
+    harness.step();
+
+    harness.get_by_label("that pattern is not one: a { is never closed");
+    assert_eq!(
+        harness.state().session().unwrap().key_pattern(),
+        "{author}{year}",
+        "a pattern that names no field does not become the setting"
+    );
+}
+
+#[test]
+fn the_generate_button_writes_the_key_the_column_shows() {
+    let mut harness = named();
+    harness.run();
+    harness.get_by_label("Generate keys").click();
+    harness.run();
+
+    let session = harness.state().session().unwrap();
+    assert_eq!(session.library().entries()[0].key.as_ref(), "Smith2024");
+    assert_eq!(
+        session.library().entries()[1].key.as_ref(),
+        "Smith2024a",
+        "two entries never end up with one key"
+    );
+    assert_eq!(harness.state().status(), "Renamed 2 keys, not saved yet");
+    assert!(harness.state().session().unwrap().is_edited());
+}
+
+#[test]
+fn a_second_press_of_generate_says_the_keys_are_done() {
+    let mut harness = named();
+    harness.run();
+    harness.get_by_label("Generate keys").click();
+    harness.run();
+    harness.get_by_label("Generate keys").click();
+    harness.run();
+
+    assert_eq!(
+        harness.state().status(),
+        "Every key already follows the pattern, or was written by hand"
+    );
+    assert_eq!(
+        harness.state().session().unwrap().library().entries()[0]
+            .key
+            .as_ref(),
+        "Smith2024",
+        "the second press leaves the key the first one wrote"
+    );
+}
+
+#[test]
+fn a_double_click_gives_one_entry_the_key_its_row_shows() {
+    let mut harness = named();
+    harness.state_mut().select(Some(0));
+    harness.run();
+    // The second row of the table, away from the columns whose own widgets take
+    // the click.
+    let at = egui::pos2(400.0, 120.0);
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(at));
+    harness.step();
+    for _ in 0..2 {
+        for pressed in [true, false] {
+            harness.input_mut().events.push(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::default(),
+            });
+        }
+        harness.step();
+    }
+    harness.run();
+
+    let session = harness.state().session().unwrap();
+    assert_eq!(
+        session.library().entries()[1].key.as_ref(),
+        "Smith2024a",
+        "the entry takes the key its own row shows"
+    );
+    assert_eq!(
+        session.library().entries()[0].key.as_ref(),
+        "first",
+        "the entry the click did not land on is left as it was"
+    );
+    assert_eq!(harness.state().status(), "Renamed second to Smith2024a");
+}
+
+#[test]
+fn the_pattern_box_shows_the_setting_the_library_uses() {
+    let harness = named();
+    harness.get_by(|node: &AccessKitNode| {
+        node.role() == Role::TextInput && node.value().as_deref() == Some("{author}{year}")
+    });
 }

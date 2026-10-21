@@ -18,17 +18,21 @@ pub enum Column {
     Year,
     /// The journal, book or proceedings title.
     Venue,
+    /// The key the pattern would give the entry, which is what a citation written
+    /// after the reader fixes the keys will say.
+    Generated,
 }
 
 impl Column {
     /// Every column, in the order the table lays them out.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Key,
         Self::Kind,
         Self::Author,
         Self::Title,
         Self::Year,
         Self::Venue,
+        Self::Generated,
     ];
 
     /// The header text.
@@ -40,6 +44,7 @@ impl Column {
             Self::Title => "Title",
             Self::Year => "Year",
             Self::Venue => "Journal / Book",
+            Self::Generated => "Generated",
         }
     }
 
@@ -52,6 +57,7 @@ impl Column {
             Self::Title => 380.0,
             Self::Year => 60.0,
             Self::Venue => 200.0,
+            Self::Generated => 130.0,
         }
     }
 
@@ -71,6 +77,7 @@ impl Column {
             Self::Venue => Facet::Venue,
             Self::Year => Facet::Year,
             Self::Kind => Facet::Kind,
+            Self::Generated => return String::new(),
             Self::Key | Self::Title => {
                 return match self {
                     Self::Key => entry.key.to_string(),

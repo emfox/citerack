@@ -7,6 +7,16 @@ the repository is not listed here.
 
 ### Added
 
+- Keys can be written from the fields an entry already holds. A toolbar box takes
+  a pattern of `{field}` references — `{author}{year}` unless told otherwise, with
+  `:l` and `:u` for case and numbers for how many words and letters — and a
+  `Generated` column shows the key the pattern makes for every row before anything
+  in the file moves. A key another entry already holds takes a letter, so two
+  entries are never named alike, and the letter shown is the one written. `Generate
+  keys` writes the column for every row, and a double-click on a row writes it for
+  that one entry. Pressing `Generate keys` twice changes nothing the second time,
+  and `Undo` takes a press back.
+
 - The detail pane says what the selected entry's type needs. `@article` asks for
   author, title, journal and year, `@book` for an author or an editor, a title, a
   publisher and a year, and so on for the types people write in; a required field

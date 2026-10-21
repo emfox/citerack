@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use citerack_bib::{
-    EditError, EntryId, EntryState, Library, ParseError, ParseOptions, WriteOptions, parse_str,
-    write_str,
+    EditError, EntryId, EntryState, Library, ParseError, ParseOptions, Pattern, PatternError,
+    WriteOptions, parse_str, unique, write_str,
 };
 use citerack_index::{Pair, SearchOptions, SearchResult, Searcher, SortKey, SortSpec};
 
@@ -189,6 +189,9 @@ pub struct Session {
     future: Vec<Change>,
     /// When the last edit landed, which is what a pause is measured from.
     last_edit: Option<Instant>,
+    /// The pattern a generated key follows, kept even while the box holds text the
+    /// pattern cannot read, so a typo does not throw the setting away.
+    key_pattern: Pattern,
     /// The duplicate scan for the current library, patched by an edit.
     duplicates: Option<Vec<Pair>>,
     /// Which entry first holds each key the scan pairs on, kept beside the scan so
@@ -273,6 +276,8 @@ impl Session {
             past: Vec::new(),
             future: Vec::new(),
             last_edit: None,
+            key_pattern: Pattern::parse(citerack_bib::DEFAULT_KEY_PATTERN)
+                .expect("the default pattern is one"),
             duplicates: None,
             duplicate_keys: None,
         })
@@ -538,6 +543,116 @@ impl Session {
             self.touched(entry);
         }
         Ok(())
+    }
+
+    /// The pattern a generated key follows.
+    pub fn key_pattern(&self) -> String {
+        self.key_pattern.as_str()
+    }
+
+    /// Sets the pattern, refusing one that names no field or cannot be written.
+    pub fn set_key_pattern(&mut self, pattern: &str) -> Result<(), PatternError> {
+        self.key_pattern = Pattern::parse(pattern)?;
+        Ok(())
+    }
+
+    /// The key the pattern makes for one entry as the library stands now.
+    pub fn proposed_key(&self, entry: usize) -> String {
+        self.free_key(
+            self.key_pattern.key_of(&self.library, EntryId(entry)),
+            entry,
+        )
+    }
+
+    /// The key the pattern makes for the entry at a displayed row, letter and
+    /// all, read through the table's own order so a column and the control
+    /// beside it agree about what a press would write.
+    pub fn proposed_key_at(&self, row: usize) -> Option<String> {
+        let entry = *self.view.get(row)?;
+        Some(self.proposed_key_of(entry))
+    }
+
+    /// The keys the pattern makes for the whole table, as the Generated column
+    /// shows them. A key another entry already holds, or an earlier row claimed,
+    /// keeps its letter, so the column is what a press would write.
+    pub fn proposed_keys(&self) -> Vec<String> {
+        let mut claimed: Vec<String> = Vec::with_capacity(self.view.len());
+        self.view
+            .iter()
+            .map(|&entry| {
+                let base = self.key_pattern.key_of(&self.library, EntryId(entry));
+                let free = self.free_among(&base, entry, &claimed);
+                claimed.push(free.clone());
+                free
+            })
+            .collect()
+    }
+
+    /// The key the pattern makes for one entry, given the keys every earlier
+    /// entry on the table already claims.
+    fn proposed_key_of(&self, entry: usize) -> String {
+        let mut claimed: Vec<String> = Vec::new();
+        for &earlier in self.view.iter() {
+            if earlier == entry {
+                return self.free_among(
+                    &self.key_pattern.key_of(&self.library, EntryId(entry)),
+                    entry,
+                    &claimed,
+                );
+            }
+            let base = self.key_pattern.key_of(&self.library, EntryId(earlier));
+            claimed.push(self.free_among(&base, earlier, &claimed));
+        }
+        self.proposed_key(entry)
+    }
+
+    /// Calls an entry something else, keeping its type and every field. This is
+    /// the one edit that reaches every row, since a key is how a citation names
+    /// an entry and two entries cannot share one.
+    pub fn generate_key(&mut self, entry: usize) -> Result<(), EditError> {
+        let key = self.proposed_key(entry);
+        self.set_key(entry, &key)
+    }
+
+    /// Gives every entry the key the pattern makes for its own fields, and the
+    /// letter that keeps it apart from a key an earlier entry claimed, so the
+    /// column and a press agree and no key is ever pointing at two entries.
+    pub fn generate_keys(&mut self) -> Result<usize, EditError> {
+        let mut written = 0;
+        let mut claimed: Vec<String> = Vec::new();
+        for row in self.rows.clone() {
+            let base = self.key_pattern.key_of(&self.library, EntryId(row));
+            let free = self.free_among(&base, row, &claimed);
+            claimed.push(free.clone());
+            let current = self.library.entries().get(row).map(|e| e.key.to_string());
+            if current.as_deref() != Some(free.as_str()) {
+                self.set_key(row, &free)?;
+                written += 1;
+            }
+        }
+        Ok(written)
+    }
+
+    /// A key from `base` that no other entry holds and no earlier generated key
+    /// claimed.
+    fn free_among(&self, base: &str, entry: usize, claimed: &[String]) -> String {
+        let library = &self.library;
+        unique(base, |candidate| {
+            claimed.iter().any(|taken| taken == candidate)
+                || library
+                    .find_by_key(candidate)
+                    .is_some_and(|id| id.0 != entry)
+        })
+    }
+
+    /// A key from `base` that no other entry holds.
+    fn free_key(&self, base: String, entry: usize) -> String {
+        let library = &self.library;
+        unique(&base, |candidate| {
+            library
+                .find_by_key(candidate)
+                .is_some_and(|id| id.0 != entry)
+        })
     }
 
     /// Renames an entry's citation key.
