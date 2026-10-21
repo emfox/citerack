@@ -203,3 +203,67 @@ fn a_short_query_after_an_edit_answers_from_the_edited_text() {
     assert_eq!(session.search("stu").rows, [] as [usize; 0]);
     assert_eq!(session.search("sur").rows, [0], "the word that replaced it");
 }
+
+#[test]
+fn an_undo_over_a_save_is_unsaved_work() {
+    // The save wrote "First", so undoing back to the text before it leaves the
+    // library saying something the file does not say.
+    let file = TempFile::holding("edit-undo-saved", INPUT);
+    let mut session = Session::open(&file.path).expect("an open");
+    session.set_field(0, 1, "First").unwrap();
+    session.save().expect("a save");
+
+    session.undo().expect("the edit is reversed");
+
+    assert_eq!(session.value(0, 1), Some("A Study of {Nested} Braces"));
+    assert!(session.is_edited(), "the file says First, not this");
+    session.save().expect("a save");
+    assert!(!session.is_edited(), "the save wrote the undo's text");
+}
+
+#[test]
+fn an_undo_of_an_unsaved_edit_lands_back_on_the_file() {
+    // Nothing was written in between, so undoing the only edit puts the library
+    // back exactly where it started and there is nothing for a save to write.
+    let file = TempFile::holding("edit-undo-plain", INPUT);
+    let mut session = Session::open(&file.path).expect("an open");
+    session.set_field(0, 1, "First").unwrap();
+
+    session.undo().expect("the edit is reversed");
+
+    assert_eq!(session.value(0, 1), Some("A Study of {Nested} Braces"));
+    assert!(!session.is_edited(), "the file already says this");
+}
+
+#[test]
+fn an_undo_of_a_later_change_leaves_the_earlier_one_unsaved() {
+    // The mirror case: two separate changes, the second reversed. What the first
+    // one wrote is still unsaved, so the marker stays.
+    let file = TempFile::holding("edit-undo-unsaved", INPUT);
+    let mut session = Session::open(&file.path).expect("an open");
+    session.set_field(0, 1, "First").unwrap();
+    session.settle_all();
+    session.set_field(0, 2, "Second").unwrap();
+
+    session.undo().expect("the later change is reversed");
+
+    assert_eq!(session.value(0, 1), Some("First"), "the first edit stands");
+    assert!(session.is_edited(), "the first edit is still unsaved");
+}
+
+#[test]
+fn typing_a_value_back_to_the_saved_text_is_not_unsaved_work() {
+    let file = TempFile::holding("edit-back", INPUT);
+    let mut session = Session::open(&file.path).expect("an open");
+    session.set_field(0, 1, "First").unwrap();
+    assert!(session.is_edited(), "a change is unsaved work");
+
+    session
+        .set_field(0, 1, "A Study of {Nested} Braces")
+        .unwrap();
+
+    assert!(
+        !session.is_edited(),
+        "the file already says what the entry now says"
+    );
+}

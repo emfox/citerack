@@ -67,6 +67,9 @@ pub struct Library {
     changed: Vec<Option<Box<str>>>,
     /// Whether each entry was edited since the last save, indexed like `entries`.
     unsaved: Vec<bool>,
+    /// The model each entry had when the file was last written, indexed like
+    /// `entries`, so an undo can say whether it landed back on the saved text.
+    saved: Vec<Option<Entry>>,
     /// The state of every entry the pending change touches, captured before the
     /// first of its edits. An asker reads this, or `changed` when it is empty.
     before: Vec<(usize, Option<Box<str>>, Entry)>,
@@ -95,6 +98,9 @@ impl Library {
             .iter()
             .map(|span| source.get(span.start..span.end).and_then(Layout::of))
             .collect();
+        // A file just opened is what its bytes say, so its entries start out as the
+        // saved ones and an edit back to them leaves nothing to write.
+        let saved = entries.iter().cloned().map(Some).collect();
         let len = entries.len();
         Self {
             source,
@@ -104,6 +110,7 @@ impl Library {
             layouts,
             changed: vec![None; len],
             unsaved: vec![false; len],
+            saved,
             before: Vec::new(),
         }
     }
@@ -161,10 +168,13 @@ impl Library {
     }
 
     /// Forgets that anything is unsaved, which a save does once the bytes are on
-    /// disk: the file now holds what the model holds. The replacements stay, since
-    /// they still say how the model differs from the file's text.
+    /// disk: the model becomes what the file holds and what a later undo is measured
+    /// against, and the replacements stay since they say how each model differs.
     pub fn mark_saved(&mut self) {
         self.unsaved.fill(false);
+        for (at, entry) in self.entries.iter().enumerate() {
+            self.saved[at] = Some(entry.clone());
+        }
     }
 
     /// The entry whose citation key matches, compared exactly.
@@ -322,10 +332,11 @@ impl Library {
             let was = self.changed[id.0].clone();
             self.before.push((id.0, was, current));
         }
-        // An entry that came back to the file's text is still a written entry,
-        // and a save replaces it with its own bytes, which is the same file.
-        self.changed[id.0] = Some(text.into_boxed_str());
-        self.unsaved[id.0] = true;
+        // Typing a value back to what the file holds leaves nothing to save, so the
+        // entry is marked as the file has it rather than as edited.
+        let back = self.saved[id.0].as_ref() == Some(&next);
+        self.changed[id.0] = (!back).then(|| text.into_boxed_str());
+        self.unsaved[id.0] = !back;
         self.entries[id.0] = next;
         Ok(true)
     }
@@ -393,19 +404,38 @@ impl Library {
                 self.before
                     .push((state.entry, was, self.entries[state.entry].clone()));
             }
-            match &state.text {
-                Some(text) => {
-                    self.changed[state.entry] = Some(text.clone());
-                    self.unsaved[state.entry] = true;
-                }
-                None => {
-                    self.changed[state.entry] = None;
-                    self.unsaved[state.entry] = false;
-                }
-            }
             self.entries[state.entry] = state.model.clone();
+            // What matters is whether this left the entry as the file has it, not
+            // whether a step was recorded for it: an undo back over a save lands on
+            // text the file does hold, and an undo of a later step does not.
+            let back = self.saved[state.entry].as_ref() == Some(&state.model);
+            if back {
+                self.changed[state.entry] = None;
+                self.unsaved[state.entry] = false;
+            } else {
+                let text = match &state.text {
+                    Some(text) => Some(text.clone()),
+                    None => self.rewritten(state.entry),
+                };
+                self.changed[state.entry] = text;
+                self.unsaved[state.entry] = true;
+            }
         }
         Ok(())
+    }
+
+    /// The bytes a save would write for one entry, rendered from its model, for a
+    /// state that was recorded before the entry had any bytes of its own.
+    fn rewritten(&self, entry: usize) -> Option<Box<str>> {
+        let model = self.entries.get(entry)?;
+        let span = self.spans.get(entry).copied().flatten();
+        match span.and_then(|span| {
+            let layout = self.layouts.get(entry)?.as_ref()?;
+            layout.rebuild(&self.source[span.start..span.end], model)
+        }) {
+            Some(text) => Some(text.into_boxed_str()),
+            None => render(model).map(String::into_boxed_str),
+        }
     }
 
     /// Refuses bytes that would not read back as the entry they stand for.

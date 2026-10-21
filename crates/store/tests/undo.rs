@@ -292,7 +292,13 @@ fn undoing_every_step_yields_the_file_the_run_started_with() {
         guard += 1;
         assert!(guard < 10, "the history runs out rather than looping");
     }
-    assert!(!session.is_edited(), "nothing of the run is left");
+    // The save in the middle of the run wrote what the run had done, so the file on
+    // disk is not what the library now says and a save has that to put right.
+    assert!(
+        session.is_edited(),
+        "the file holds the state before the undo"
+    );
     session.save().expect("a save");
     assert_eq!(file.read(), INPUT, "undone all the way is the file it was");
+    assert!(!session.is_edited(), "the save wrote what the undo left");
 }
