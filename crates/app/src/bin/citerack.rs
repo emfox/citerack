@@ -11,6 +11,7 @@ citerack - a reference manager for large BibTeX libraries
 Usage:
     citerack [FILE.bib]            open a library in a window
     citerack --open-time FILE.bib  parse and index, print the timings, exit
+    citerack --edit-time FILE.bib  edit one field, print the timings, exit
     citerack --save-time FILE.bib  save an edited copy, print the timings, exit
     citerack --search QUERY FILE   print the first rows a query matches, exit
     citerack --explain QUERY FILE  print what the index holds per term, exit
@@ -45,6 +46,10 @@ fn main() -> ExitCode {
         Some("--open-time") => match args.next() {
             Some(path) => open_time(PathBuf::from(path)),
             None => usage_error("--open-time needs a file"),
+        },
+        Some("--edit-time") => match args.next() {
+            Some(path) => edit_time(PathBuf::from(path)),
+            None => usage_error("--edit-time needs a file"),
         },
         Some("--save-time") => match args.next() {
             Some(path) => save_time(PathBuf::from(path)),
@@ -139,6 +144,53 @@ fn save_time(path: PathBuf) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Prints how long a keystroke costs, which is what a window feels between one
+/// frame and the next: one edit, the search that follows it, and a second edit.
+fn edit_time(path: PathBuf) -> ExitCode {
+    let mut session = match Session::open(&path) {
+        Ok(session) => session,
+        Err(err) => {
+            eprintln!("{}: {err}", path.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    for (field, value) in [
+        (0, "Edited, By Timing"),
+        (1, "Timing, Ed"),
+        (2, "The Timing Book"),
+        (3, "2001"),
+        (4, "10.9999/edit-time"),
+    ] {
+        // A library need not carry every field, so a missing one is not a failure.
+        let _ = session.set_field(0, field, value);
+    }
+    let started = std::time::Instant::now();
+    if let Err(err) = session.set_field(0, 3, "10.9999/edit-time") {
+        eprintln!("{}: {err}", path.display());
+        return ExitCode::FAILURE;
+    }
+    let edit = started.elapsed().as_secs_f64();
+    let started = std::time::Instant::now();
+    let rows = session.search("smi").rows.len();
+    let first_search = started.elapsed().as_secs_f64();
+    let started = std::time::Instant::now();
+    if let Err(err) = session.set_field(0, 3, "10.9999/edit-time-2") {
+        eprintln!("{}: {err}", path.display());
+        return ExitCode::FAILURE;
+    }
+    let again = started.elapsed().as_secs_f64();
+    let started = std::time::Instant::now();
+    session.search("smi");
+    let search_again = started.elapsed().as_secs_f64();
+    println!("file        {}", path.display());
+    println!("entries     {}", session.len());
+    println!("edit        {:.4} s", edit);
+    println!("search      {:.4} s, {rows} rows", first_search);
+    println!("edit_again  {:.4} s", again);
+    println!("search_again {:.4} s", search_again);
+    ExitCode::SUCCESS
 }
 
 /// Prints what a query would show, which is how the engine is tested without a
