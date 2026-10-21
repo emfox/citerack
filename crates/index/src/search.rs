@@ -109,6 +109,9 @@ impl Searcher {
                 FieldRef::Key | FieldRef::Kind => None,
             })
             .collect();
+        // A column's place in the list is not promised, so two columns can hold
+        // the same name without sitting side by side.
+        names.sort_unstable();
         names.dedup();
         names
     }

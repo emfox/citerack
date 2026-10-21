@@ -102,6 +102,20 @@ fn the_covered_field_names_are_each_listed_once() {
 }
 
 #[test]
+fn the_field_names_are_listed_once_even_after_a_run_of_edits() {
+    // Replacing a field rebuilds the column list, so the names are asked for by
+    // themselves rather than by the column beside them.
+    let mut indexed = Searcher::build(&library(), &SearchOptions::default());
+    for name in ["title", "author", "year", "title", "year"] {
+        indexed = indexed
+            .replace_field(0, name, "Smith, John")
+            .expect("the column is indexed");
+    }
+    let names = indexed.field_names();
+    assert_eq!(names, ["author", "title", "year"], "one entry per field");
+}
+
+#[test]
 fn replacing_a_field_the_index_does_not_cover_changes_nothing() {
     let indexed = Searcher::build(&library(), &SearchOptions::default());
     assert!(indexed.replace_field(0, "note", "something").is_none());
