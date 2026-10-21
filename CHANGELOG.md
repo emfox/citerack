@@ -27,3 +27,5 @@ the repository is not listed here.
   take 13.4 ms and now takes 0.05 ms.
 - `citerack --explain`, which prints how many rows each column holds for a query,
   so a search that returns too much or too little can be traced to a field.
+- `citerack --index-report`, which prints where the index spends its memory per
+  field, so a library that opens slowly can be traced to the field responsible.

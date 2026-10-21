@@ -115,6 +115,11 @@ impl Session {
         self.searcher.explain(query);
     }
 
+    /// Prints how many postings each column holds, which is where the memory goes.
+    pub fn report(&self) {
+        self.searcher.report();
+    }
+
     /// Restores every row and the file order.
     pub fn clear_search(&mut self) {
         self.order = (0..self.library.len()).collect();

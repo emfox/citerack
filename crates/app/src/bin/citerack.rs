@@ -13,6 +13,7 @@ Usage:
     citerack --open-time FILE.bib  parse and index, print the timings, exit
     citerack --search QUERY FILE   print the first rows a query matches, exit
     citerack --explain QUERY FILE  print what the index holds per term, exit
+    citerack --index-report FILE   print where the index spends its memory, exit
     citerack --version             print the version
     citerack --help                print this text
 ";
@@ -36,6 +37,10 @@ fn main() -> ExitCode {
             (Some(query), Some(path)) => explain(PathBuf::from(path), &query),
             _ => usage_error("--explain needs a query and a file"),
         },
+        Some("--index-report") => match args.next() {
+            Some(path) => index_report(PathBuf::from(path)),
+            None => usage_error("--index-report needs a file"),
+        },
         Some("--open-time") => match args.next() {
             Some(path) => open_time(PathBuf::from(path)),
             None => usage_error("--open-time needs a file"),
@@ -49,6 +54,21 @@ fn main() -> ExitCode {
 fn usage_error(message: &str) -> ExitCode {
     eprintln!("{message}\n\n{HELP}");
     ExitCode::from(2)
+}
+
+/// Prints how many postings each column holds, which is where the memory goes
+/// and which column another saving would have to come from.
+fn index_report(path: PathBuf) -> ExitCode {
+    match Session::open(&path) {
+        Ok(session) => {
+            session.report();
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("{}: {err}", path.display());
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// Prints how long opening took, which is the figure a bug report should quote.
