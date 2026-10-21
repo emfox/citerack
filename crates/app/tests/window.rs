@@ -228,3 +228,101 @@ fn a_search_after_ctrl_z_finds_the_value_that_came_back() {
     assert_eq!(again.search("2024").rows, vec![0], "the old year is back");
     assert_eq!(again.search("2025").rows.len(), 0, "the new one is gone");
 }
+
+#[test]
+fn ctrl_f_puts_the_cursor_in_the_filter_box() {
+    let mut harness = opened();
+    harness.state_mut().select(Some(0));
+    harness.run();
+
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    harness.run();
+
+    assert!(
+        harness.state().filter_focused(&harness.ctx),
+        "the filter box has the cursor after Ctrl+F"
+    );
+}
+
+#[test]
+fn ctrl_s_writes_the_library_to_the_file_it_came_from() {
+    let dir = std::env::temp_dir().join(format!("citerack-ctrl-s-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory");
+    let path = dir.join("library.bib");
+    std::fs::write(&path, INPUT).expect("the file");
+    let session = Session::open(&path).expect("an open");
+
+    let mut harness = harness(App::with_session(session));
+    harness.state_mut().select(Some(0));
+    harness.run();
+    retype_year(&mut harness, "2025");
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    harness.run();
+
+    assert_eq!(harness.state().status(), "Saved", "the key saved the file");
+    let written = std::fs::read_to_string(&path).expect("the file");
+    assert!(written.contains("2025"), "the edit reached the disk");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn ctrl_f_reaches_the_filter_from_a_field_box() {
+    let mut harness = opened();
+    // A field box holds the cursor, which is where a user is after an edit.
+    field(&harness, "Smith, John").click();
+    harness.run();
+
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    harness.run();
+
+    assert!(
+        harness.state().filter_focused(&harness.ctx),
+        "Ctrl+F moves the cursor out of the field and into the filter"
+    );
+}
+
+#[test]
+fn typing_after_ctrl_f_narrows_the_table() {
+    let mut harness = opened();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    harness.run();
+    assert!(
+        harness.state().filter_focused(&harness.ctx),
+        "the typing below needs the filter to have the cursor"
+    );
+
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::Text(String::from("jones")));
+    // The filter waits for the typing to stop, and each step reads the real
+    // clock, so the wait has to pass in real time before a frame searches.
+    for _ in 0..8 {
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        harness.step();
+    }
+
+    assert_eq!(
+        harness.state().session().unwrap().order(),
+        [1],
+        "only the entry holding the typed word is shown"
+    );
+}
+
+#[test]
+fn ctrl_o_asks_for_a_file_without_disturbing_what_is_open() {
+    let mut harness = opened();
+    let before = harness.state().status().to_owned();
+
+    // No display means no dialog, so the key finds no file. What matters here is
+    // that the window survives the question and keeps its library.
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::O);
+    harness.run();
+
+    assert!(harness.state().opening().is_none(), "no file was chosen");
+    assert_eq!(harness.state().status(), before, "the status is unchanged");
+    assert!(
+        harness.state().session().is_some(),
+        "the library is still open"
+    );
+}
