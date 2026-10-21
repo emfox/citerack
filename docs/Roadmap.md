@@ -24,6 +24,13 @@ sharing a DOI, or a title and a year, are named with the pair and the reason, an
 the table can be narrowed to them. `docs/Ui-spec.md` §2 and §5 say what a user
 sees and what counts as the same work.
 
+Editing that follows an entry type came off the second list in October 2026 by
+being done: a selected entry is shown with every field its type requires in red,
+an empty box under them for each one the file does not hold, and `missing` beside
+it, while a required field the file holds with nothing in it says `empty`. A box
+written into adds the field; a box left alone leaves the file as it was.
+`docs/Ui-spec.md` §5 and `CHANGELOG.md` say what a user sees.
+
 Facets came off the second list in October 2026 by being done: the Groups panel
 offers author, journal, year and type, pressing a value narrows the table, and the
 count beside a value is what pressing it would leave under the search and the
@@ -43,12 +50,16 @@ work is.
 
 | Item | What a user gains | Done when |
 | --- | --- | --- |
-| Entry editing that follows the type's required fields | a form that answers what the entry type needs | adding an `@article` offers author, title, journal and year, and flags an empty required one |
 | Citation key generation | a key that follows a pattern rather than a shrug | a configurable pattern produces a unique key, and a collision appends a suffix rather than overwriting |
 | Bulk operations | retagging or renaming in one step | a multi-row selection can be edited, and the file is still byte-identical outside the edited fields |
+| UI strings in one catalogue | a window that speaks a language other than English | every word the window shows comes from one file, and a second language file changes the window without a rebuild |
 | External file attachments | opening the PDF from the entry | a field naming a path opens that file, and a missing file is reported beside the field rather than as a dialog |
 | Import from DOI and arXiv | typing an identifier instead of an entry | an identifier produces a complete entry, and a failed lookup leaves the library untouched |
 | Windows build | running on the platform most students have | the same three commands in `README.md` produce a working binary on a Windows runner |
+
+"UI strings in one catalogue" is what `docs/Conventions.md` §1 already promises:
+the strings are inline in `crates/app/src` today and there is no `locales/`
+directory, so that rule describes a target rather than the tree.
 
 ## 3. Decided against
 

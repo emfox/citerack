@@ -15,12 +15,14 @@ const INPUT: &str = "\
   Author   = {Smith, John},
   Title    = {A Study of Braces},
   Year     = 2024,
+  Journal  = {Journal of Braces},
 }
 
 @Book{jones1999,
-  Author   = {Jones, Ann},
-  Title    = {Another Book},
-  Year     = 1999,
+  Author    = {Jones, Ann},
+  Title     = {Another Book},
+  Year      = 1999,
+  Publisher = {Knot Press},
 }
 ";
 
@@ -99,7 +101,12 @@ fn the_detail_pane_shows_the_selected_entry_field_by_field() {
     let harness = opened();
     assert_eq!(
         boxes(&harness),
-        ["Smith, John", "A Study of Braces", "2024"],
+        [
+            "Smith, John",
+            "A Study of Braces",
+            "2024",
+            "Journal of Braces"
+        ],
         "one box per field, in file order"
     );
     assert_eq!(
@@ -366,7 +373,7 @@ fn a_key_move_shows_the_row_it_landed_on() {
 
     assert_eq!(
         boxes(&harness),
-        ["Jones, Ann", "Another Book", "1999"],
+        ["Jones, Ann", "Another Book", "1999", "Knot Press"],
         "the pane follows the selection"
     );
 }
@@ -421,14 +428,15 @@ fn tab_walks_the_fields_and_wraps_at_the_end() {
     harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
     harness.run();
     let mut walked = Vec::new();
-    for _ in 0..3 {
+    for _ in 0..4 {
         walked.push(harness.state().focused_field());
         harness.key_press(egui::Key::Tab);
         harness.run();
     }
-    // Three fields and three Tabs: the walk visits each one once and comes back to
-    // the start rather than leaving the entry, so one key reaches the whole entry.
-    assert_eq!(walked, [Some(0), Some(1), Some(2)]);
+    // Four boxes and four Tabs, the fourth being the journal an article needs
+    // though the file was made without one: the walk visits each box once and
+    // comes back to the start rather than leaving the entry.
+    assert_eq!(walked, [Some(0), Some(1), Some(2), Some(3)]);
     assert_eq!(harness.state().focused_field(), Some(0), "the walk wraps");
 }
 
@@ -441,8 +449,8 @@ fn shift_tab_walks_the_fields_backwards() {
     harness.run();
     assert_eq!(
         harness.state().focused_field(),
-        Some(2),
-        "backwards from the first field is the last one"
+        Some(3),
+        "backwards from the first field is the last one, the journal it lacks"
     );
 }
 
@@ -815,5 +823,160 @@ fn a_group_narrows_by_where_the_work_was_published() {
         harness.state().session().unwrap().order(),
         [0, 1],
         "the two journal articles, and not the book"
+    );
+}
+
+/// An article made without the journal and title its type asks for, and a type
+/// that asks for nothing, so a missing field has somewhere to be missing.
+const THIN: &str = "\
+@Article{thin2024,
+  Author   = {Smith, John},
+  Year     = 2024,
+}
+
+@Article{blank2023,
+  Author   = {Smith, John},
+  Title    = {A Study of Braces},
+  Year     = 2023,
+  Journal  = {  },
+}
+
+@Misc{notes2019,
+  Author   = {Smith, John},
+  Title    = {Notes},
+  Year     = 2019,
+}
+";
+
+fn thin() -> Harness<'static, App> {
+    let session = Session::from_text(
+        PathBuf::from("thin.bib"),
+        THIN,
+        &citerack_bib::ParseOptions { recover: true },
+    )
+    .expect("the input parses");
+    harness(App::with_session(session))
+}
+
+#[test]
+fn an_article_offers_the_fields_its_type_needs() {
+    let mut harness = thin();
+    harness.state_mut().select(Some(0));
+    harness.run();
+
+    // The two fields the file holds, then a box each for the two it lacks.
+    assert_eq!(
+        boxes(&harness),
+        ["Smith, John", "2024", "", ""],
+        "a box for the title and the journal, empty and in that order"
+    );
+    harness.get_by_label("This article wants author, title, journal, year.");
+    harness.get_by_label("title");
+    harness.get_by_label("journal");
+}
+
+#[test]
+fn a_missing_required_field_is_marked_rather_than_added() {
+    let mut harness = thin();
+    harness.state_mut().select(Some(0));
+    harness.run();
+    assert_eq!(
+        harness.query_all_by_label("missing").count(),
+        2,
+        "the title and the journal are both marked"
+    );
+
+    let session = harness.state().session().unwrap();
+    let written = citerack_bib::write_str(session.library(), &citerack_bib::WriteOptions::Preserve);
+    assert_eq!(
+        written, THIN,
+        "nothing was written for the boxes that were never filled"
+    );
+}
+
+#[test]
+fn filling_a_missing_field_writes_it_into_the_entry() {
+    let mut harness = thin();
+    harness.state_mut().select(Some(0));
+    harness.run();
+
+    // The title's box is the first the file does not hold, the journal's the
+    // second, and the filter box is empty too, hence the step past it. A short
+    // word keeps the typing inside the box: a line too long for it repaints.
+    harness
+        .get_all_by(|node: &AccessKitNode| {
+            node.role() == Role::TextInput && node.value().as_deref() == Some("")
+        })
+        .nth(1)
+        .expect("the title's box")
+        .click();
+    harness.run();
+    // The caret goes where a user would put it: the end of the box.
+    harness.key_press(egui::Key::End);
+    harness.run();
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::Text(String::from("Braces")));
+    harness.run();
+    harness.key_press(egui::Key::Escape);
+    harness.run();
+
+    let session = harness.state().session().unwrap();
+    let entry = &session.library().entries()[0];
+    assert_eq!(
+        entry.field("title").map(|value| value.to_string()),
+        Some(String::from("Braces")),
+        "the typed title reached the entry"
+    );
+    assert_eq!(
+        entry.field("journal").map(|value| value.to_string()),
+        None,
+        "the box left empty added no field"
+    );
+    assert_eq!(harness.state().status(), "Edited, not saved yet");
+}
+
+#[test]
+fn a_required_field_present_but_blank_says_empty() {
+    let mut harness = thin();
+    harness.state_mut().select(Some(1));
+    harness.run();
+
+    assert_eq!(
+        boxes(&harness),
+        ["Smith, John", "A Study of Braces", "2023", "  "],
+        "a blank field keeps its box, holding what the file holds"
+    );
+    assert_eq!(
+        harness.query_all_by_label("empty").count(),
+        1,
+        "the journal is named as empty rather than missing"
+    );
+    assert_eq!(
+        harness.query_all_by_label("missing").count(),
+        0,
+        "nothing is missing from this one"
+    );
+}
+
+#[test]
+fn a_misc_asks_for_no_field_it_does_not_have() {
+    let mut harness = thin();
+    harness.state_mut().select(Some(2));
+    harness.run();
+
+    assert_eq!(
+        boxes(&harness),
+        ["Smith, John", "Notes", "2019"],
+        "no box is drawn for a field the type does not require"
+    );
+    assert_eq!(harness.query_all_by_label("missing").count(), 0);
+    assert_eq!(
+        harness
+            .query_all_by_label("This misc wants author, title, year.")
+            .count(),
+        0,
+        "a type with nothing required says nothing about what it wants"
     );
 }

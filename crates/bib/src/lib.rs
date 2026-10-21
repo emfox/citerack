@@ -7,6 +7,7 @@ mod error;
 mod library;
 mod model;
 mod parse;
+mod schema;
 mod write;
 
 pub use edit::{FieldLayout, Layout};
@@ -14,4 +15,5 @@ pub use error::{ParseError, ParseErrorKind};
 pub use library::{EditError, EntryId, EntryState, Library, Span};
 pub use model::{Delimiter, Entry, EntryKind, Field, FieldName};
 pub use parse::{ParseOptions, parse_str};
+pub use schema::{Wanted, is_required, satisfied, wanted};
 pub use write::{WriteOptions, write_str};

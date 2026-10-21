@@ -116,9 +116,30 @@ selection once the table has focus.
 
 Shows the entry type and key as a header, then every field in the order the file
 listed them, with the field name in the weak colour and the value in the normal
-one. Fields the parser did not model appear here too, because the pane is drawn
-from the parsed list rather than from a fixed schema: whatever the file held is
-what the user sees.
+one. Every field the file held appears here, whether or not the parser has a name
+for it: the pane is drawn from the parsed list, so whatever the file held is what
+the user sees.
+
+The type then says what it needs, and the pane answers for the parts that are
+missing. Each field name the type requires is drawn in red rather than the weak
+colour, and under the fields sits one empty box for each required field the entry
+does not have, with the name in red and `missing` beside it. A required field the
+file holds but whose value reads as nothing keeps its own box and is marked
+`empty` instead, since adding a second copy of a field the entry already has is
+not something a reader typing into a box asked for. One line above the fields
+names the type's requirements, so a red row answers "which of these does this one
+lack" without the list being repeated on every row.
+
+The table is BibTeX's own, kept in `citerack-bib`: `@article` asks for author,
+title, journal and year; a book for author or editor, title, publisher and year,
+since an anthology nobody wrote is still a book. A type the table does not know,
+and `@misc`, which is what a file reaches for when nothing else fits, requires
+nothing and so draws no empty box.
+
+An empty box writes only when it is filled: typing into it and leaving adds the
+field under the name the type gave it, in the position the file's order allows,
+and leaving it untouched adds nothing. A library is not edited by being opened,
+so an entry the user never touched is saved byte for byte as it came.
 
 Every value is a text box. A value is committed when the box loses focus, so
 typing a word does not rewrite the entry once per keystroke, and what is saved is

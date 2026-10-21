@@ -500,7 +500,7 @@ impl App {
             .library()
             .entries()
             .get(row)
-            .map(|entry| entry.fields.len())
+            .map(detail::rows_count)
     }
 
     /// Opens the platform's file dialog, which blocks until the user answers.

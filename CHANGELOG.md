@@ -7,6 +7,14 @@ the repository is not listed here.
 
 ### Added
 
+- The detail pane says what the selected entry's type needs. `@article` asks for
+  author, title, journal and year, `@book` for an author or an editor, a title, a
+  publisher and a year, and so on for the types people write in; a required field
+  the entry lacks is named in red with an empty box under the fields and
+  `missing` beside it, and a required field the file holds but left blank says
+  `empty`. Writing into an empty box adds the field, and an entry nobody touched
+  is still saved byte for byte as it came.
+
 - The Groups panel lists authors, journals, years and entry types, and pressing a
   value narrows the table to it. A pressed value stays in its list marked
   `(let go)`, so a second press brings the rows back, and `Clear` lets every list
