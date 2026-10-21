@@ -1,0 +1,6 @@
+# A Windows build from a Linux host uses the mingw linker, which the target does
+# not find on its own. The setting is inert until a Windows target is asked for.
+
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+ar = "x86_64-w64-mingw32-ar"
