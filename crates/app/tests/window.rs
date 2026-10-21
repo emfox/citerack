@@ -532,3 +532,98 @@ fn a_save_clears_the_unsaved_marker_from_the_toolbar() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A library holding the same paper twice, so the duplicate scan has a pair.
+const TWICE: &str = "\
+@Article{smith2024,
+  Author   = {Smith, John},
+  Title    = {A Study of Braces},
+  Year     = 2024,
+  Doi      = {10.1000/braces},
+}
+
+@Article{smith2024copy,
+  Author   = {Smith, J.},
+  Title    = {A Study of Braces},
+  Year     = 2024,
+  Doi      = {https://doi.org/10.1000/BRACES},
+}
+
+@Book{jones1999,
+  Author   = {Jones, Ann},
+  Title    = {Another Book},
+  Year     = 1999,
+}
+";
+
+fn twice() -> Harness<'static, App> {
+    let session = Session::from_text(
+        PathBuf::from("twice.bib"),
+        TWICE,
+        &citerack_bib::ParseOptions { recover: true },
+    )
+    .expect("the input parses");
+    harness(App::with_session(session))
+}
+
+#[test]
+fn the_toolbar_says_how_many_pairs_there_are() {
+    let harness = twice();
+    harness.get_by_label("Duplicates 2");
+}
+
+#[test]
+fn the_details_of_a_duplicate_name_the_other_entry_and_the_reason() {
+    let mut harness = twice();
+    harness.state_mut().select(Some(0));
+    harness.run();
+    harness.get_by_label("Also entered as smith2024copy: the same DOI");
+    harness.get_by_label("Also entered as smith2024copy: the same title and year");
+}
+
+#[test]
+fn the_duplicate_button_narrows_the_table_to_the_pairs() {
+    let mut harness = twice();
+    assert_eq!(harness.state().session().unwrap().order().len(), 3);
+    harness.get_by_label("Duplicates 2").click();
+    harness.run();
+    assert_eq!(
+        harness.state().session().unwrap().order().len(),
+        2,
+        "the third entry is not in a pair"
+    );
+    assert!(
+        harness.query_all_by_label("jones1999").count() <= 1,
+        "the un-paired entry is off the table, leaving only its detail heading at most"
+    );
+}
+
+#[test]
+fn the_duplicate_button_turns_the_filter_off_again() {
+    let mut harness = twice();
+    harness.get_by_label("Duplicates 2").click();
+    harness.run();
+    harness.get_by_label("Duplicates 2 (shown)").click();
+    harness.run();
+    assert_eq!(
+        harness.state().session().unwrap().order().len(),
+        3,
+        "the whole library is back"
+    );
+}
+
+#[test]
+fn a_library_with_no_pairs_offers_no_button_to_press() {
+    let mut harness = harness(App::with_session(session()));
+    harness.get_by_label("Duplicates 0").click();
+    harness.run();
+    assert_eq!(
+        harness.state().session().unwrap().order().len(),
+        2,
+        "pressing it changes nothing, since the filter would show the same rows"
+    );
+    assert!(
+        !harness.state().session().unwrap().showing_only_duplicates(),
+        "the table did not narrow to an empty set"
+    );
+}

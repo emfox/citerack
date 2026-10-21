@@ -46,17 +46,28 @@ pub fn show(
         ui.weak("Select an entry to see its fields.");
         return Outcome::Idle;
     };
-    ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(entry.kind.as_str()).strong());
-        ui.label(RichText::new(entry.key.as_ref()).monospace());
-    });
-    ui.separator();
-
+    // Everything the pane needs is read out of the library before the duplicate
+    // scan borrows the session mutably; the entry itself cannot outlive that.
     let names: Vec<String> = entry
         .fields
         .iter()
         .map(|f| f.name_raw.to_string())
         .collect();
+    let heading = (entry.kind.as_str().to_owned(), entry.key.to_string());
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new(&heading.0).strong());
+        ui.label(RichText::new(&heading.1).monospace());
+    });
+    // A duplicate is named here rather than in a list elsewhere: the entry is
+    // already on screen, so the reason and the other half of the pair belong with
+    // it, where a user reading the fields can act on them.
+    for (key, reason) in session.duplicates_of(row) {
+        ui.colored_label(
+            egui::Color32::from_rgb(214, 168, 92),
+            format!("Also entered as {key}: {reason}"),
+        );
+    }
+    ui.separator();
     // Read every value before drawing, since committing one borrows the session
     // mutably and the rows still to be drawn would hold a shared borrow.
     let current: Vec<String> = (0..names.len())

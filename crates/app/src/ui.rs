@@ -310,7 +310,42 @@ impl App {
             {
                 self.redo();
             }
+            ui.separator();
+            self.duplicates_button(ui);
         });
+    }
+
+    /// The button that narrows the table to the entries in a duplicate pair. It
+    /// says how many pairs there are, since a count of zero is the answer a user
+    /// wants most of the time.
+    fn duplicates_button(&mut self, ui: &mut egui::Ui) {
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        let count = session.duplicate_count();
+        let showing = session.showing_only_duplicates();
+        let label = if showing {
+            format!("Duplicates {count} (shown)")
+        } else {
+            format!("Duplicates {count}")
+        };
+        let clicked = ui
+            .add_enabled(count > 0, egui::Button::new(label))
+            .on_hover_text("show only the entries that look like the same work twice")
+            .clicked();
+        if clicked {
+            session.show_only_duplicates(!showing);
+            // The rows the table shows just changed under it, so a selection made
+            // in the old list no longer points at what the user was looking at.
+            self.selected = None;
+            self.draft = None;
+            self.status = if showing {
+                String::from("Showing every entry")
+            } else {
+                let pairs = if count == 1 { "pair" } else { "pairs" };
+                format!("Showing the entries in {count} duplicate {pairs}")
+            };
+        }
     }
 
     /// Moves the selection by `step` rows, clamped to the table. From nothing
