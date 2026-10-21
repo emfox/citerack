@@ -326,3 +326,77 @@ fn ctrl_o_asks_for_a_file_without_disturbing_what_is_open() {
         "the library is still open"
     );
 }
+
+#[test]
+fn the_down_key_walks_the_table_and_stops_at_the_last_row() {
+    let mut harness = opened();
+    assert_eq!(harness.state().selected(), Some(0));
+
+    harness.key_press(egui::Key::ArrowDown);
+    harness.run();
+    assert_eq!(harness.state().selected(), Some(1), "the second row");
+
+    harness.key_press(egui::Key::ArrowDown);
+    harness.run();
+    assert_eq!(harness.state().selected(), Some(1), "the last row holds");
+}
+
+#[test]
+fn the_up_key_walks_back_and_stops_at_the_first_row() {
+    let mut harness = opened();
+    harness.state_mut().select(Some(1));
+    harness.run();
+
+    harness.key_press(egui::Key::ArrowUp);
+    harness.run();
+    assert_eq!(harness.state().selected(), Some(0), "the first row");
+
+    harness.key_press(egui::Key::ArrowUp);
+    harness.run();
+    assert_eq!(harness.state().selected(), Some(0), "the first row holds");
+}
+
+#[test]
+fn a_key_move_shows_the_row_it_landed_on() {
+    let mut harness = opened();
+    harness.key_press(egui::Key::ArrowDown);
+    harness.run();
+
+    assert_eq!(
+        boxes(&harness),
+        ["Jones, Ann", "Another Book", "1999"],
+        "the pane follows the selection"
+    );
+}
+
+#[test]
+fn the_first_arrow_picks_a_row_when_none_is_picked() {
+    let mut harness = harness(App::with_session(session()));
+    assert_eq!(harness.state().selected(), None);
+
+    harness.key_press(egui::Key::ArrowDown);
+    harness.run();
+    assert_eq!(harness.state().selected(), Some(0), "down takes the first");
+
+    harness.state_mut().select(None);
+    harness.run();
+    harness.key_press(egui::Key::ArrowUp);
+    harness.run();
+    assert_eq!(harness.state().selected(), Some(1), "up takes the last");
+}
+
+#[test]
+fn an_arrow_in_a_field_box_moves_the_caret_not_the_selection() {
+    let mut harness = opened();
+    field(&harness, "Smith, John").click();
+    harness.run();
+
+    harness.key_press(egui::Key::ArrowDown);
+    harness.run();
+
+    assert_eq!(
+        harness.state().selected(),
+        Some(0),
+        "the table did not move while a box held the cursor"
+    );
+}
