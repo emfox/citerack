@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""Enforce the English-only and comment-density policy. See docs/Conventions.md."""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+
+CJK_RANGES = (
+    (0x3000, 0x303F),   # CJK punctuation
+    (0x3040, 0x30FF),   # Hiragana / Katakana
+    (0x3400, 0x4DBF),   # CJK extension A
+    (0x4E00, 0x9FFF),   # CJK unified ideographs
+    (0xF900, 0xFAFF),   # CJK compatibility
+    (0xFF00, 0xFFEF),   # fullwidth forms
+    (0x20000, 0x2FA1F),  # CJK extension B and beyond
+)
+
+# An exemption is a path and the one-line reason it exists.
+ALLOWLIST_FILES = {
+    "docs/Conventions.md": "the policy names the rule it enforces",
+    "scripts/check_language.py": "this script matches CJK by definition",
+}
+
+# A Chinese document declares its language in its own name, so a new translation
+# needs no edit here and Chinese inside an English document still fails.
+ALLOWLIST_SUFFIX = ".zh-CN.md"
+
+# Locale catalogues are the translation data, not prose about the code.
+ALLOWLIST_DIRS = {
+    "locales": "locale catalogues hold the translated strings",
+}
+
+# The bilingual README pair cross-links by the other language's own name.
+ALLOWLIST_LINE_RE = re.compile(r"\[\u7b80\u4f53\u4e2d\u6587\]\(README\.zh-CN\.md\)")
+
+CODE_SUFFIXES = {".rs", ".toml", ".py", ".sh"}
+DOC_SUFFIXES = {".md", ".rst"}
+
+COMMENT_RE = re.compile(r"^\s*(///|//!|//)")
+MAX_COMMENT_BLOCK = 3
+
+# Build output and vendored sources are not this repository's prose.
+SKIP_PREFIXES = ("target/", ".git/", "vendor/")
+
+
+def first_cjk(text: str) -> tuple[int, str] | None:
+    for idx, ch in enumerate(text):
+        cp = ord(ch)
+        if any(lo <= cp <= hi for lo, hi in CJK_RANGES):
+            return idx, ch
+    return None
+
+
+def is_allowlisted(rel: str) -> bool:
+    if rel in ALLOWLIST_FILES or rel.endswith(ALLOWLIST_SUFFIX):
+        return True
+    parts = rel.split("/")
+    if any(d in parts for d in ALLOWLIST_DIRS):
+        return True
+    return any(rel.startswith(p) for p in SKIP_PREFIXES)
+
+
+def iter_targets() -> list[Path]:
+    """Every text file the language policy applies to."""
+    out: list[Path] = []
+    for p in REPO.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(REPO).as_posix()
+        if is_allowlisted(rel):
+            continue
+        if "/target/" in rel:
+            continue
+        if p.suffix in CODE_SUFFIXES or p.suffix in DOC_SUFFIXES:
+            out.append(p)
+    return sorted(out)
+
+
+def check_cjk(files: list[Path]) -> list[str]:
+    errors: list[str] = []
+    for p in files:
+        rel = p.relative_to(REPO).as_posix()
+        try:
+            lines = p.read_text(encoding="utf-8").splitlines()
+        except (UnicodeDecodeError, OSError):
+            continue
+        hits = [
+            i
+            for i, line in enumerate(lines, 1)
+            if first_cjk(line) and not ALLOWLIST_LINE_RE.search(line)
+        ]
+        if not hits:
+            continue
+        preview = "; ".join(f"L{i}" for i in hits[:6])
+        more = f" (+{len(hits) - 6} more)" if len(hits) > 6 else ""
+        errors.append(f"{rel}: CJK found at {preview}{more}")
+    return errors
+
+
+def check_comment_density(files: list[Path]) -> list[str]:
+    errors: list[str] = []
+    for p in files:
+        if p.suffix != ".rs":
+            continue
+        rel = p.relative_to(REPO).as_posix()
+        lines = p.read_text(encoding="utf-8").splitlines()
+        run = 0
+        start = 0
+        for i, line in enumerate(lines, 1):
+            if COMMENT_RE.match(line):
+                if run == 0:
+                    start = i
+                run += 1
+            else:
+                if run > MAX_COMMENT_BLOCK:
+                    errors.append(
+                        f"{rel}: comment block of {run} lines at L{start}-L{start + run - 1}"
+                    )
+                run = 0
+        if run > MAX_COMMENT_BLOCK:
+            errors.append(f"{rel}: comment block of {run} lines at L{start}")
+    return errors
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--cjk-only", action="store_true", help="skip the comment check")
+    ap.add_argument("--density-only", action="store_true", help="skip the CJK check")
+    args = ap.parse_args()
+
+    files = iter_targets()
+    failures: list[str] = []
+
+    print(f"Scanned {len(files)} files\n")
+
+    if not args.density_only:
+        cjk = check_cjk(files)
+        print(f"[language] {len(cjk)} file(s) contain CJK")
+        failures += cjk
+
+    if not args.cjk_only:
+        dense = check_comment_density(files)
+        print(f"[comments] {len(dense)} comment block(s) exceed {MAX_COMMENT_BLOCK} lines")
+        failures += dense
+
+    if not failures:
+        print("\nOK: policy satisfied")
+        return 0
+
+    print(f"\nFAILED: {len(failures)} violation(s)\n")
+    for f in failures:
+        print(f"  {f}")
+    print("\nSee docs/Conventions.md for the rules.")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
