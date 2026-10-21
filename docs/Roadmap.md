@@ -28,7 +28,6 @@ work is.
 | Item | What a user gains | Done when |
 | --- | --- | --- |
 | Facets for author, journal and type | narrowing by a click instead of a typed query | each facet narrows the table, and the count beside it reflects the other facets rather than the whole file |
-| Cheaper index for a library that repeats nothing | opening a library of short, unrelated entries without waiting for a table that only its rare words need | a word that occurs in one row costs no gram entries, and the +20 column of `docs/Performance.md` §5 opens in under half its present time with the same answers |
 | Entry editing that follows the type's required fields | a form that answers what the entry type needs | adding an `@article` offers author, title, journal and year, and flags an empty required one |
 | Citation key generation | a key that follows a pattern rather than a shrug | a configurable pattern produces a unique key, and a collision appends a suffix rather than overwriting |
 | Bulk operations | retagging or renaming in one step | a multi-row selection can be edited, and the file is still byte-identical outside the edited fields |

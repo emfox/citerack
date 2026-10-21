@@ -216,27 +216,37 @@ impl Searcher {
     /// Prints how many postings each column holds, which is where the build's
     /// memory goes and which column a saving would have to come from.
     pub fn report(&self) {
-        let mut rows: Vec<(&str, usize, usize, usize)> = self
+        // Column, postings, runs, words, grams, and the gram entries a one-row word
+        // costs. The last two are where a wide vocabulary puts its memory.
+        let mut rows: Vec<(&str, [usize; 5])> = self
             .columns
             .iter()
             .map(|c| {
                 (
                     c.name.as_str(),
-                    c.inverted.posting_count(),
-                    c.inverted.run_count(),
-                    c.inverted.word_count(),
+                    [
+                        c.inverted.posting_count(),
+                        c.inverted.run_count(),
+                        c.inverted.word_count(),
+                        c.inverted.gram_count(),
+                        c.inverted.solo_count(),
+                    ],
                 )
             })
             .collect();
-        rows.sort_unstable_by_key(|(_, postings, _, _)| std::cmp::Reverse(*postings));
-        let total: usize = rows.iter().map(|(_, p, _, _)| p).sum();
-        for (name, postings, runs, words) in rows {
+        rows.sort_unstable_by_key(|(_, counts)| std::cmp::Reverse(counts[0]));
+        let total: usize = rows.iter().map(|(_, counts)| counts[0]).sum();
+        println!(
+            "{:<16} {:>10} {:>8} {:>8} {:>8} {:>10}",
+            "", "postings", "runs", "words", "grams", "solo"
+        );
+        for (name, [postings, runs, words, grams, solo]) in rows {
             println!(
-                "{name:<16} {postings:>10} postings  {runs:>7} runs  {words:>7} words  {:>5.1}%",
+                "{name:<16} {postings:>10} {runs:>8} {words:>8} {grams:>8} {solo:>10}  {:>5.1}%",
                 postings as f64 * 100.0 / total as f64
             );
         }
-        println!("{:<16} {total:>10} postings", "total");
+        println!("{:<16} {total:>10}", "total");
     }
 
     /// How many postings the whole index holds, for a memory report.
