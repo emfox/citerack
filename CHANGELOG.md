@@ -31,6 +31,12 @@ the repository is not listed here.
   value is one keystroke from being undone and a save after it writes the file as
   it was. A run of typing into one field undoes as one step; a pause starts
   another, and an edit to several entries undoes together.
+- The whole window works without a mouse. `Up` and `Down` walk the table and stop
+  at either end, scrolling the row they land on into view; `Ctrl+D` reaches the
+  detail pane, where `Tab` and `Shift+Tab` walk the fields of the entry and
+  `Escape` leaves the box with what was typed kept. `Ctrl+O`, `Ctrl+S`, `Ctrl+F`,
+  `Ctrl+Z` and `Ctrl+Shift+Z` reach the rest, each of them a shortcut for a
+  control that is already there.
 - A tagged release publishes a Linux binary and a Windows one, each with a
   checksum beside it. The Windows build links its runtime statically, so it runs
   on a machine that never had a compiler installed.
