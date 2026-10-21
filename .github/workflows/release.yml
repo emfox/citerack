@@ -11,6 +11,9 @@ permissions:
   contents: write
 
 jobs:
+  # Both binaries are built on Linux, which is the host the project is developed
+  # on. A Windows job would link with a different toolchain and a different SDK,
+  # so what a tag ships and what a checkout builds would not be the same thing.
   linux:
     runs-on: ubuntu-latest
     steps:
@@ -42,46 +45,53 @@ jobs:
           path: dist/*
 
   windows:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # The runner carries the MSVC toolchain, so the target needs no setup
-      # beyond the one rustup ships with.
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
+      # xwin links with lld and reads the headers with clang, so both come from
+      # the host rather than from a Visual Studio installation.
+      - name: Install the cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld
+          cargo install cargo-xwin --locked
+
       - uses: Swatinem/rust-cache@v2
 
-      # The runtime is linked statically by `.cargo/config.toml`, so the exe needs
-      # no redistributable on the machine that runs it.
+      # The Microsoft CRT and SDK come from a pinned download, so the same
+      # revision of this repository links against the same libraries every time.
+      - name: Fetch the Microsoft CRT and SDK
+        run: cargo-xwin cache xwin
+
       - name: Build
-        run: cargo build --release --locked --target x86_64-pc-windows-msvc -p citerack
+        run: cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p citerack
 
       - name: Package
-        shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item target/x86_64-pc-windows-msvc/release/citerack.exe dist/citerack.exe
-          $hash = (Get-FileHash dist/citerack.exe -Algorithm SHA256).Hash.ToLower()
-          "$hash  citerack.exe" | Out-File -FilePath dist/citerack.exe.sha256 -Encoding ascii
+          mkdir -p dist
+          cp target/x86_64-pc-windows-msvc/release/citerack.exe dist/citerack.exe
+          cd dist && sha256sum citerack.exe > citerack.exe.sha256
 
-      # The exe has no signature, so the checksum is the way to tell the file
-      # apart from anything else that carries the same name.
+      # The runtime is linked statically by `.cargo/config.toml`. A redistributable
+      # that creeps back in would leave the exe unopenable on a machine that never
+      # had a compiler, so the build fails here rather than there.
       - name: Check the dependencies are all system libraries
-        shell: pwsh
         run: |
-          $dlls = & dumpbin /nologo /dependents dist/citerack.exe |
-            Select-String -Pattern '^\s+(\S+\.dll)\s*$' |
-            ForEach-Object { $_.Matches[0].Groups[1].Value }
-          $borrowed = $dlls | Where-Object {
-            $_ -match '^(VCRUNTIME|MSVCP|api-ms-win-crt|ucrtbase)' -or $_ -match '^(libgcc|libstdc)'
-          }
-          if ($borrowed) {
-            Write-Error "The exe needs a runtime the machine may not have: $borrowed"
-          }
-          $dlls | Sort-Object -Unique | ForEach-Object { "  $_" }
+          borrowed=$(objdump -p dist/citerack.exe |
+            grep -i 'DLL Name' |
+            sed 's/.*DLL Name: //' |
+            grep -iE '^(VCRUNTIME|MSVCP|api-ms-win-crt|ucrtbase|libgcc|libstdc)')
+          if [ -n "$borrowed" ]; then
+            echo "The exe needs a runtime the machine may not have:" >&2
+            echo "$borrowed" >&2
+            exit 1
+          fi
+          objdump -p dist/citerack.exe | grep -i 'DLL Name' | sed 's/.*DLL Name: //' | sort -u
 
       - uses: actions/upload-artifact@v4
         with:
@@ -104,12 +114,11 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          # A tag that only moves the checksum still needs a note, so the release
-          # body is the changelog's unreleased section rather than nothing.
           body: |
             Built from ${{ github.sha }} by the release workflow.
 
             Each binary has a `.sha256` beside it. Verify with:
 
-                sha256sum -c citerack.sha256          # Linux
-                Get-FileHash citerack.exe -Algorithm SHA256   # Windows
+                sha256sum -c citerack.sha256                     # Linux
+                sha256sum -c citerack.exe.sha256                 # Linux or WSL
+                Get-FileHash citerack.exe -Algorithm SHA256      # Windows
