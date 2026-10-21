@@ -47,16 +47,24 @@ find the table in the middle and the fields on the right without being told.
 | Open | asks for a `.bib` file and replaces the session |
 | Sort by Key / Author / Year / Title | sorts by that column; clicking the active one reverses it |
 | Save | writes the file back, byte for byte outside the fields that were edited |
+| Duplicates N | narrows the table to the entries in a duplicate pair, and back |
 
 The sort buttons carry `^` or `v` showing the direction. Clicking a different
 field sorts it ascending; clicking the same field again flips the direction.
 This is the behaviour of a table header, exposed as a button because the header
 is also a drag target for resizing.
 
-Save carries a `*` while an edit is not yet written to the file. There is no
-confirmation dialog: a save cannot lose an edit, because a value that cannot be
-written where it sits is refused when it is typed rather than when it is saved.
-When the save grows asynchronous, the status line becomes its progress.
+Save carries a `*` while an edit is not yet written to the file, and loses it once
+the save returns. There is no confirmation dialog: a save cannot lose an edit,
+because a value that cannot be written where it sits is refused when it is typed
+rather than when it is saved.
+
+`Duplicates N` is disabled when `N` is zero, which is the answer most libraries
+give and the one a user wants to read at a glance. Pressing it shows only the rows
+in a pair and the button reads `(shown)` until it is pressed again. The search and
+the sort are left alone underneath, so the filter can be turned off without the
+table losing its place. A count is a count of pairs, not of entries: two copies of
+one paper are one pair and two rows.
 
 ## 3. Filter box
 
@@ -125,6 +133,20 @@ Only the bytes of an edited value move in the file. The delimiters, the spacing
 around the `=`, the order of the fields and every byte of every other entry stay
 as the file had them, which is what lets a hand-formatted library be edited here
 rather than only read.
+
+When the entry is in a duplicate pair, one line per pair appears under the header,
+naming the other entry's key and what the two matched on. A pair is reported once
+per reason, so an entry sharing both a DOI and a title with another says so twice:
+each is a separate thing a user might fix.
+
+What counts as the same work is deliberately narrow. A shared DOI is one, compared
+with the `doi:` and resolver prefixes stripped and the case folded, since a DOI is
+case-insensitive. So is a shared title and year, with the title folded, braces
+removed, punctuation dropped and spacing collapsed, so `A Study of {N}ested
+Braces` and `a study of nested braces` are one title. A title alone is not enough,
+and neither is a year alone: without both halves there is nothing to be confident
+about, and a guess that is wrong costs more attention than a duplicate that went
+unreported.
 
 ## 6. Groups
 

@@ -44,6 +44,13 @@ the repository is not listed here.
   was always meant to answer.
 - `citerack --save-time`, which writes an edited copy and reports how long it took,
   so the save path can be measured without a window.
+- A duplicate is named where it already appears: the detail pane shows a line for
+  each entry the selected one looks like, and the toolbar counts the pairs. Two
+  entries match on a DOI, or on a title and a year, compared with the DOI's
+  resolver prefix and the title's case, accents, braces and punctuation folded
+  away, so a second copy pasted from a publisher's site is caught as readily as one
+  retyped by hand. Pressing the count narrows the table to the entries involved and
+  pressing it again brings the rest back.
 - A tagged release publishes a Linux binary and a Windows one, each with a
   checksum beside it. The Windows build links its runtime statically, so it runs
   on a machine that never had a compiler installed.

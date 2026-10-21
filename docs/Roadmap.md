@@ -13,8 +13,12 @@ outside this repository could install and use daily.
 
 | Item | What a user gains | Done when |
 | --- | --- | --- |
-| Duplicate detection | finding the same paper entered twice | two entries sharing a DOI, or sharing a title and a year, are listed with the pair and the reason |
 | A second renderer behind the first | a window that opens on hardware where the GL driver is broken | when `glow` fails to start, the same process is started again with `wgpu` and the window appears instead of exiting with an error |
+
+Duplicate detection came off this list in October 2026 by being done: two entries
+sharing a DOI, or a title and a year, are named with the pair and the reason, and
+the table can be narrowed to them. `docs/Ui-spec.md` §2 and §5 say what a user
+sees and what counts as the same work.
 
 Asynchronous saving was on this list and came off it in October 2026, not because it
 was done but because it was measured and the reason for it did not hold: a save
