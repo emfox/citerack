@@ -3,6 +3,19 @@
 What a reader of the release notes can now do. Anything that changed only inside
 the repository is not listed here.
 
+## Unreleased
+
+### Added
+
+- The Groups panel lists authors, journals, years and entry types, and pressing a
+  value narrows the table to it. A pressed value stays in its list marked
+  `(let go)`, so a second press brings the rows back, and `Clear` lets every list
+  go at once. The count beside a value is what pressing it would leave once the
+  search and the other lists are taken into account, rather than how many rows the
+  whole file holds, so a facet never promises rows it cannot show. A list of
+  twelve values or fewer is open before the panel is touched; a longer one shows
+  its total and opens on a click.
+
 ## 0.1.0 - 21 October 2026
 
 The first release. A library opens in a window, a filter box narrows it, and an

@@ -5,7 +5,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use citerack_index::{SortField, SortSpec};
-use citerack_store::Session;
+use citerack_store::{Facet, Session};
 use egui::{Align, Label, Layout, RichText};
 use egui_extras::{Column as TableColumn, TableBuilder};
 
@@ -22,6 +22,9 @@ const ROW_HEIGHT: f32 = 20.0;
 /// How long an edit sits before it counts as a step of its own, so a burst of
 /// changes to one entry undoes together rather than one change at a time.
 const EDIT_PAUSE: Duration = Duration::from_millis(700);
+
+/// How many values a facet list shows before it says how many it left out.
+const LISTED: usize = 12;
 
 /// The filter box's id, which `Ctrl+F` needs to reach it before it is drawn.
 const FILTER_ID: &str = "filter_query";
@@ -597,27 +600,102 @@ impl App {
     }
 
     fn groups(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Groups");
-        ui.separator();
-        ui.weak("Year");
-        let mut years: Vec<String> = Vec::new();
-        if let Some(session) = &self.session {
-            for entry in session.library().entries() {
-                if let Some(year) = entry.field("year") {
-                    if !years.iter().any(|y| y == year) {
-                        years.push(year.to_owned());
-                    }
+        ui.horizontal(|ui| {
+            ui.heading("Groups");
+            let narrowed = self.session.as_ref().map_or(0, Session::facet_count);
+            if narrowed > 0 && ui.small_button("Clear").clicked() {
+                if let Some(session) = &mut self.session {
+                    session.clear_facets();
                 }
+                self.after_narrowing();
             }
+        });
+        ui.separator();
+        // The lists the question "narrow it" is asked with, in the order a reader
+        // narrows: who, then where, then when, then what kind.
+        let mut pressed: Option<(Facet, String)> = None;
+        let mut cleared: Option<Facet> = None;
+        for facet in Facet::ALL {
+            // Read the list, the pick and the count in one go, since counting a
+            // list is the only thing here that touches the whole table.
+            let Some(session) = &mut self.session else {
+                break;
+            };
+            let values = session.facet_values(facet).to_vec();
+            let picked = session.picked(facet).map(str::to_owned);
+            let shown = values.len();
+            let heading = match &picked {
+                Some(picked) => format!("{}: {picked}", facet.heading()),
+                None => format!("{} ({shown})", facet.heading()),
+            };
+            // A short list opens so its values are read without a click; a long
+            // one stays shut, since its first twelve would fill the panel.
+            let open = shown <= LISTED;
+            egui::CollapsingHeader::new(heading)
+                .id_salt(facet.heading())
+                .default_open(open)
+                .show(ui, |ui| {
+                    if let Some(picked) = &picked {
+                        if ui.small_button("Show every value").clicked() {
+                            cleared = Some(facet);
+                        }
+                        // The heading already names the value, so this press says
+                        // what it does rather than repeating the word above it.
+                        if ui
+                            .add(egui::Button::selectable(
+                                true,
+                                format!("{picked}  (let go)"),
+                            ))
+                            .clicked()
+                        {
+                            pressed = Some((facet, picked.clone()));
+                        }
+                        ui.separator();
+                    }
+                    for value in values.iter().take(LISTED) {
+                        if picked.as_deref() == Some(value.label.as_str()) {
+                            continue;
+                        }
+                        let label = format!("{} ({})", value.label, value.count);
+                        if ui
+                            .add(egui::Button::selectable(false, label).frame(false))
+                            .clicked()
+                        {
+                            pressed = Some((facet, value.label.clone()));
+                        }
+                    }
+                    if shown > LISTED {
+                        ui.weak(format!("and {} more", shown - LISTED));
+                    }
+                });
         }
-        years.sort();
-        years.reverse();
-        for year in years.iter().take(40) {
-            if ui.selectable_label(false, year).clicked() {
-                self.query.clone_from(year);
-                self.query_changed_at = Some(Instant::now());
-            }
+        if let Some(facet) = cleared
+            && let Some(session) = &mut self.session
+        {
+            session.clear_facet(facet);
+            self.after_narrowing();
         }
+        if let Some((facet, value)) = pressed
+            && let Some(session) = &mut self.session
+        {
+            session.toggle_facet(facet, &value);
+            self.after_narrowing();
+        }
+    }
+
+    /// Called when a facet changed, since the rows behind the selection are not
+    /// the ones the user was looking at any more.
+    fn after_narrowing(&mut self) {
+        self.selected = None;
+        self.draft = None;
+        let shown = self.session.as_ref().map_or(0, |s| s.order().len());
+        let narrowing = self.session.as_ref().map_or(0, |s| s.facet_count());
+        self.status = if narrowing == 0 {
+            format!("{shown} entries")
+        } else {
+            let lists = if narrowing == 1 { "list" } else { "lists" };
+            format!("{shown} entries  |  narrowed by {narrowing} facet {lists}")
+        };
     }
 
     /// Column widths in proportion to what each one holds, so the title gets
@@ -731,7 +809,9 @@ impl App {
         egui::SidePanel::left("groups")
             .resizable(true)
             .default_width(180.0)
-            .show(ctx, |ui| self.groups(ui));
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| self.groups(ui));
+            });
 
         egui::SidePanel::right("detail")
             .resizable(true)

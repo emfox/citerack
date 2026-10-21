@@ -18,9 +18,10 @@ library's business; what matters is where the eye goes and what a keystroke does
 +----------+---------------------------------------+------------+
 | Groups   |  Key  Type  Author  Title  Year  Venue |  Detail    |
 |          |  ...                                  |  pane      |
-| Year     |  ...                                  |  fields    |
-|  2026    |  ...                                  |            |
-|  2025    |                                       |            |
+| Author   |  ...                                  |  fields    |
+|  (1174)  |  ...                                  |            |
+| Journal  |                                       |            |
+| Year  (57)                                      |            |
 +----------+---------------------------------------+------------+
 | 15,000 entries | opened in 0.29 s | path        status line     |
 +---------------------------------------------------------------+
@@ -30,7 +31,7 @@ library's business; what matters is where the eye goes and what a keystroke does
 | --- | --- | --- |
 | Toolbar | top, fixed height | commands that change the whole file, reachable before the eye reaches the table |
 | Filter box | top, fixed height, full width | the one control used most, and a full width means a long query stays visible |
-| Groups | left, resizable, collapsible | a facet list; it narrows what the table holds and never holds data itself |
+| Groups | left, resizable, collapsible, scrolls | four facet lists over the table; they narrow what it holds and never hold data themselves |
 | Table | centre, takes the remaining space | the main content, so it gets every pixel the others do not claim |
 | Detail | right, resizable, collapsible | fields of the selected row, each one editable in place |
 | Status line | bottom, fixed height | one sentence about what just happened, in the same place every time |
@@ -150,13 +151,67 @@ unreported.
 
 ## 6. Groups
 
-Lists the distinct years in the library, newest first, and clicking a year puts
-it in the filter box. It is a shortcut for a query a user would otherwise type.
+Four lists, in the order a reader narrows: **Author**, **Journal / Book**, **Year**
+and **Type**. Each value carries the number of rows pressing it would leave on the
+table, and the heading carries the number of values the list holds under the
+search and the other lists:
 
-Groups is deliberately thin in this release. It exists to hold the place the
-arrangement gives it, and to prove that a facet can narrow the table without the
-table knowing what narrowed it. Author, journal and keyword facets are roadmap
-items, and each is a different query string rather than a different region.
+```
+Author (1065)
+Journal / Book (186)
+Year (57)
+Type: article
+```
+
+**A count is the table's answer, not the file's.** The number beside `2024` is how
+many rows remain if `2024` is pressed with everything else already in force: the
+search, the duplicate filter and the three other lists. A library of 15 000
+entries whose authors number 1 174 offers `Author (1065)` once a type is picked,
+because that is how many authors the narrowed table still has. A count that
+described the whole file would be true and useless: it would promise rows the next
+click cannot deliver.
+
+**A list keeps its own pick in the list.** Pressing a value narrows the table, and
+the value pressed stays at the top with its count, reading `article  (let go)`,
+while the other values continue to be offered with the counts they would have if
+this list were let go. Without that, a value would disappear the moment it was
+pressed and there would be no way back except the filter box. Pressing it again
+lets the list go, which is the same gesture as pressing it the first time.
+
+Values are ordered by count, most rows first, and ties by name, because the group
+a reader wants is usually the one the library holds most of.
+
+A list of twelve values or fewer opens with the panel, so its values are read
+without a click. A longer one starts shut with its total in the heading, and once
+open it shows the first twelve and one weak line saying how many it left out.
+Twelve is what fits beside a table without the panel becoming the window.
+
+A list that is holding a value offers `Show every value` above it, which lets that
+one list go, and `Clear` beside the `Groups` heading lets all four go at once. Both
+are shortcuts for pressing the held value: a reader who has picked four values
+should not have to find four lines to undo them.
+
+The four lists narrow the same table the filter box does, so a search and a facet
+compose rather than compete: clearing the box leaves the facets in force, and
+`Clear` leaves the query in force. The status line says which, so the state is
+never invisible:
+
+```
+5070 entries  |  narrowed by 1 facet list
+```
+
+**The counts are free to look at.** They are recounted when the table or the text
+behind it changes and held in between, because a frame that walked a library of
+100 000 entries to redraw the panel would cost seconds. `docs/Performance.md` §8
+has the figures. The consequence a reader can notice is that a value's count moves
+when the table does and not before.
+
+A row's value for a list is spelled exactly as the column shows it, and both come
+from one function, so a group can never name something the table spells another
+way. `Journal / Book` is one list rather than two because a reader asking "where
+was this published" does not care whether the file called it a journal, a book
+title or a publisher; the column takes journal, else book title, else publisher,
+and the list takes the same three in the same order.
 
 ## 7. Keyboard
 
@@ -170,6 +225,7 @@ items, and each is a different query string rather than a different region.
 | `Ctrl`/`Cmd` + `Shift` + `Z`, or `Ctrl` + `Y` | anywhere | put the change back | the `Redo` button |
 | `Down` | table | select the next row | the row itself |
 | `Up` | table | select the previous row | the row itself |
+| `Tab`, `Shift` + `Tab` | anywhere but the detail pane | next or previous control, the facet lists included | the control itself |
 | `Ctrl`/`Cmd` + `D` | anywhere | put the cursor in the first field of the entry | the first field box |
 | `Tab`, `Shift` + `Tab` | detail pane | next or previous field, wrapping | the fields themselves |
 | `Escape` | detail pane | leave the field box, keeping what was typed | clicking outside it |

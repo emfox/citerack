@@ -14,6 +14,149 @@ use citerack_index::{Pair, SearchOptions, SearchResult, Searcher, SortKey, SortS
 /// How many changes the history keeps, which is more than a user retraces.
 const HISTORY: usize = 100;
 
+/// Which field each facet list narrows the table by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Facet {
+    /// The first author's surname, as the Author column shows it.
+    Author,
+    /// The journal, else the book title, else the publisher, as the Venue column
+    /// shows it: a reader asking "where" wants one list, not three.
+    Venue,
+    /// The year.
+    Year,
+    /// The entry type.
+    Kind,
+}
+
+impl Facet {
+    /// The lists the window draws, in the order it draws them.
+    pub const ALL: [Self; 4] = [Self::Author, Self::Venue, Self::Year, Self::Kind];
+
+    /// The heading over the list.
+    pub fn heading(self) -> &'static str {
+        match self {
+            Self::Author => "Author",
+            Self::Venue => "Journal / Book",
+            Self::Year => "Year",
+            Self::Kind => "Type",
+        }
+    }
+
+    /// A row's value for this list, or `None` where the entry leaves it empty: an
+    /// entry with no year would otherwise be offered as a group called "".
+    pub fn value_of(self, library: &Library, row: usize) -> Option<String> {
+        Facet::plain(self, library.entries().get(row)?)
+    }
+
+    /// The value this list files an entry under, in the spelling the table uses.
+    pub fn plain(self, entry: &citerack_bib::Entry) -> Option<String> {
+        let raw = match self {
+            Self::Author => entry.field("author").map(first_author),
+            Self::Venue => entry
+                .field("journal")
+                .or_else(|| entry.field("booktitle"))
+                .or_else(|| entry.field("publisher"))
+                .map(str::to_owned),
+            Self::Year => entry.field("year").map(str::to_owned),
+            Self::Kind => Some(entry.kind.as_str().to_ascii_lowercase()),
+        }?;
+        let value = raw.trim();
+        (!value.is_empty()).then(|| value.to_owned())
+    }
+}
+
+/// One line of a facet list: the value, and how many rows picking it leaves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FacetValue {
+    /// The value as the table shows it, which is also what is compared.
+    pub label: String,
+    /// How many rows the table would hold with this value picked.
+    pub count: usize,
+}
+
+/// How many lists there are, which is the width of the picked-value array.
+const FACET_COUNT: usize = 4;
+
+/// The value picked in each facet list, held by index into `Facet::ALL`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Facets {
+    picked: [Option<String>; FACET_COUNT],
+}
+
+impl Facets {
+    /// The value picked in one list.
+    pub fn of(&self, facet: Facet) -> Option<&str> {
+        self.picked[Self::slot(facet)].as_deref()
+    }
+
+    /// Picks a value, or lets the list go when it is already picked.
+    pub fn toggle(&mut self, facet: Facet, value: &str) {
+        let slot = &mut self.picked[Self::slot(facet)];
+        if slot.as_deref() == Some(value) {
+            *slot = None;
+        } else {
+            *slot = Some(value.to_owned());
+        }
+    }
+
+    /// Lets one list go.
+    pub fn clear(&mut self, facet: Facet) {
+        self.picked[Self::slot(facet)] = None;
+    }
+
+    /// How many lists are picked.
+    pub fn len(&self) -> usize {
+        self.picked.iter().filter(|picked| picked.is_some()).count()
+    }
+
+    /// Whether no list is picked.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The same lists, less one, which is how a list counts itself as if it were
+    /// not picked.
+    pub fn without(&self, facet: Facet) -> Self {
+        let mut facets = self.clone();
+        facets.clear(facet);
+        facets
+    }
+
+    /// Whether a row passes every list, which is the whole of what a facet does.
+    pub fn keeps(&self, library: &Library, row: usize) -> bool {
+        let entry = library.entries().get(row);
+        let lists: &[Facet] = &Facet::ALL;
+        lists
+            .iter()
+            .zip(&self.picked)
+            .all(|(facet, picked)| match (picked, entry) {
+                (None, _) => true,
+                (Some(picked), Some(entry)) => facet.plain(entry).as_deref() == Some(picked),
+                (Some(_), None) => false,
+            })
+    }
+
+    /// Which list position this facet keeps its value in. An exhaustive match,
+    /// since a fallback here would quietly erase another list's pick.
+    pub fn slot(facet: Facet) -> usize {
+        match facet {
+            Facet::Author => 0,
+            Facet::Venue => 1,
+            Facet::Year => 2,
+            Facet::Kind => 3,
+        }
+    }
+}
+
+/// The first author as `Last` when the list is `Last, First`, else as written.
+fn first_author(authors: &str) -> String {
+    let first = authors.split(" and ").next().unwrap_or(authors).trim();
+    match first.split_once(',') {
+        Some((last, _)) => last.trim().to_owned(),
+        None => first.to_owned(),
+    }
+}
+
 /// A library open in memory, with its search index ready.
 pub struct Session {
     path: PathBuf,
@@ -30,6 +173,17 @@ pub struct Session {
     only_duplicates: bool,
     /// Whether an edit left the index describing the file rather than the screen.
     stale: bool,
+    /// The value picked in each facet list; `None` leaves that list narrowed to
+    /// nothing rather than setting a value that no row holds.
+    facets: Facets,
+    /// The lists a window draws, kept between frames: counting them walks the
+    /// table, and a frame that walked it every time would cost seconds at 100k.
+    facet_lists: Vec<Vec<FacetValue>>,
+    /// What `facet_lists` was counted from, since an edit can change a value.
+    facet_seen: u64,
+    /// Bumped whenever the table or the text behind it changes, which is what
+    /// tells the facet lists their counts are out of date.
+    view_mark: u64,
     /// What each change replaced, oldest first, and what it left behind.
     past: Vec<Change>,
     future: Vec<Change>,
@@ -112,6 +266,10 @@ impl Session {
             rows,
             only_duplicates: false,
             stale: false,
+            facets: Facets::default(),
+            facet_lists: vec![Vec::new(); FACET_COUNT],
+            facet_seen: 0,
+            view_mark: 1,
             past: Vec::new(),
             future: Vec::new(),
             last_edit: None,
@@ -158,24 +316,114 @@ impl Session {
         self.only_duplicates
     }
 
+    /// The values one facet list offers, each with how many rows it would leave
+    /// on the table, counted once and then held until the table changes.
+    pub fn facet_values(&mut self, facet: Facet) -> &[FacetValue] {
+        if self.facet_seen != self.view_mark {
+            self.count_facets();
+        }
+        let slot = Facets::slot(facet);
+        &self.facet_lists[slot]
+    }
+
+    /// Counts every list at once, which is one walk of the table rather than four.
+    fn count_facets(&mut self) {
+        for facet in Facet::ALL {
+            let counted = self.count_facet(facet);
+            self.facet_lists[Facets::slot(facet)] = counted;
+        }
+        self.facet_seen = self.view_mark;
+    }
+
+    /// The values of one list, as the other facets and this one's own pick leave
+    /// it: a held value is kept in the list so that pressing it again lets it go.
+    fn count_facet(&self, facet: Facet) -> Vec<FacetValue> {
+        let others = self.facets.without(facet);
+        let library = &self.library;
+        let picked = self.facets.of(facet);
+        let mut tally: Vec<(String, usize)> = Vec::new();
+        for row in 0..library.len() {
+            if !others.keeps(library, row) {
+                continue;
+            }
+            let Some(value) = facet.value_of(library, row) else {
+                continue;
+            };
+            // The table as the other lists leave it, plus the rows this list's own
+            // pick holds back: without the second, the pressed value would vanish.
+            let listed = self.view.contains(&row);
+            if listed || picked == Some(value.as_str()) {
+                match tally.iter_mut().find(|(held, _)| *held == value) {
+                    Some((_, count)) => *count += 1,
+                    None => tally.push((value, 1)),
+                }
+            }
+        }
+        // Biggest first, since the group a user wants is usually the one the
+        // library holds most of, and a count is read before a name is.
+        tally.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        tally
+            .into_iter()
+            .map(|(label, count)| FacetValue { label, count })
+            .collect()
+    }
+
+    /// The value picked in one facet list.
+    pub fn picked(&self, facet: Facet) -> Option<&str> {
+        self.facets.of(facet)
+    }
+
+    /// Picks a value in a facet list, or lets it go when it is already picked,
+    /// and narrows the table to what the lists now allow.
+    pub fn toggle_facet(&mut self, facet: Facet, value: &str) {
+        self.facets.toggle(facet, value);
+        self.refresh_view();
+    }
+
+    /// Lets one list go, which puts back the rows it was hiding.
+    pub fn clear_facet(&mut self, facet: Facet) {
+        self.facets.clear(facet);
+        self.refresh_view();
+    }
+
+    /// Lets every list go at once.
+    pub fn clear_facets(&mut self) {
+        self.facets = Facets::default();
+        self.refresh_view();
+    }
+
+    /// How many lists are narrowing the table.
+    pub fn facet_count(&self) -> usize {
+        self.facets.len()
+    }
+
     /// Rebuilds what the table shows from the search result and the filter.
     fn refresh_view(&mut self) {
-        if !self.only_duplicates {
-            self.view.clone_from(&self.rows);
-            return;
+        self.view.clone_from(&self.rows);
+        if self.only_duplicates {
+            self.view = self.duplicates_view();
         }
+        if !self.facets.is_empty() {
+            let facets = self.facets.clone();
+            let library = &self.library;
+            self.view.retain(|row| facets.keeps(library, *row));
+        }
+        self.view_mark += 1;
+    }
+
+    /// The rows on the table that are in a duplicate pair, in display order.
+    fn duplicates_view(&mut self) -> Vec<usize> {
         self.duplicates();
         let mut involved = vec![false; self.library.len()];
         for pair in self.duplicates.iter().flatten() {
             involved[pair.first] = true;
             involved[pair.second] = true;
         }
-        self.view = self
-            .rows
+        self.view
             .iter()
             .copied()
             .filter(|row| involved.get(*row).copied().unwrap_or(false))
-            .collect();
+            .collect()
     }
 
     /// Filters to a query, keeping the current sort.
@@ -467,6 +715,9 @@ impl Session {
         }
         self.reindexed(entry);
         self.refresh_view();
+        // The rows are back where they were, so the count did not move, but the
+        // text a list is spelled from did.
+        self.view_mark += 1;
     }
 
     /// Recomputes one row's sort key and replaces its words in each column, which

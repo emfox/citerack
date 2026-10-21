@@ -665,3 +665,155 @@ fn a_window_the_user_closed_is_not_reopened_elsewhere() {
         "a closed window is left closed"
     );
 }
+
+/// A library whose entries differ in author, venue and year, so every facet has
+/// something to narrow by.
+const SPREAD: &str = "\
+@article{smith2024,
+  Author  = {Smith, John},
+  Title   = {A Study of Braces},
+  Year    = 2024,
+  Journal = {Journal of Braces},
+}
+
+@article{smith2023,
+  Author  = {Smith, John},
+  Title   = {Another Study},
+  Year    = 2023,
+  Journal = {Journal of Braces},
+}
+
+@book{jones1999,
+  Author    = {Jones, Ann},
+  Title     = {Another Book},
+  Year      = 1999,
+  Publisher = {Knot Press},
+}
+";
+
+fn spread() -> Harness<'static, App> {
+    let session = Session::from_text(
+        PathBuf::from("spread.bib"),
+        SPREAD,
+        &citerack_bib::ParseOptions { recover: true },
+    )
+    .expect("the input parses");
+    harness(App::with_session(session))
+}
+
+#[test]
+fn a_facet_list_offers_a_value_with_the_rows_it_leaves() {
+    let harness = spread();
+    harness.get_by_label("Smith (2)");
+    harness.get_by_label("Jones (1)");
+}
+
+#[test]
+fn pressing_a_value_narrows_the_table_to_it() {
+    let mut harness = spread();
+    assert_eq!(harness.state().session().unwrap().order().len(), 3);
+
+    harness.get_by_label("Jones (1)").click();
+    harness.run();
+
+    assert_eq!(
+        harness.state().session().unwrap().order(),
+        [2],
+        "the table holds Jones's entry alone"
+    );
+    assert_eq!(
+        harness.state().status(),
+        "1 entries  |  narrowed by 1 facet list"
+    );
+}
+
+#[test]
+fn the_list_of_one_facet_counts_what_the_other_facets_allow() {
+    let mut harness = spread();
+    harness.get_by_label("Smith (2)").click();
+    harness.run();
+
+    harness.get_by_label("2024 (1)");
+    harness.get_by_label("2023 (1)");
+    assert!(
+        harness.query_all_by_label("1999 (1)").count() == 0,
+        "a year Smith has no entry in is not offered"
+    );
+}
+
+#[test]
+fn pressing_the_held_value_again_lets_the_list_go() {
+    let mut harness = spread();
+    harness.get_by_label("Jones (1)").click();
+    harness.run();
+    assert_eq!(harness.state().session().unwrap().order().len(), 1);
+
+    // The held value is drawn apart from the rest, and pressing it is the way back.
+    harness.get_by_label("Jones  (let go)").click();
+    harness.run();
+    assert_eq!(
+        harness.state().session().unwrap().order().len(),
+        3,
+        "the whole library is back"
+    );
+    assert_eq!(harness.state().status(), "3 entries");
+}
+
+#[test]
+fn the_clear_button_lets_every_list_go_at_once() {
+    let mut harness = spread();
+    harness.get_by_label("Smith (2)").click();
+    harness.run();
+    harness.get_by_label("2023 (1)").click();
+    harness.run();
+    assert_eq!(harness.state().session().unwrap().order().len(), 1);
+
+    harness.get_by_label("Clear").click();
+    harness.run();
+    assert_eq!(harness.state().session().unwrap().order().len(), 3);
+    assert_eq!(
+        harness.state().session().unwrap().facet_count(),
+        0,
+        "no list is narrowing any more"
+    );
+}
+
+#[test]
+fn a_facet_and_a_search_narrow_the_same_table() {
+    let mut harness = spread();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    harness.run();
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::Text(String::from("another")));
+    for _ in 0..8 {
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        harness.step();
+    }
+    assert_eq!(
+        harness.state().session().unwrap().order(),
+        [1, 2],
+        "both entries hold the word"
+    );
+
+    harness.get_by_label("Jones (1)").click();
+    harness.run();
+    assert_eq!(
+        harness.state().session().unwrap().order(),
+        [2],
+        "the facet narrowed the rows the query found"
+    );
+}
+
+#[test]
+fn a_group_narrows_by_where_the_work_was_published() {
+    let mut harness = spread();
+    harness.get_by_label("Journal of Braces (2)").click();
+    harness.run();
+    assert_eq!(
+        harness.state().session().unwrap().order(),
+        [0, 1],
+        "the two journal articles, and not the book"
+    );
+}

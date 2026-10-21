@@ -1,7 +1,7 @@
 //! The table's columns, and how a cell is rendered from a library row.
 
 use citerack_bib::Entry;
-use citerack_store::Session;
+use citerack_store::{Facet, Session};
 
 /// A column the table can show, sized the way a reader scans a bibliography.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,33 +60,25 @@ impl Column {
         matches!(self, Self::Year)
     }
 
-    /// Renders one cell, borrowing from the entry rather than copying it.
+    /// Renders one cell. The column and the facet list above it read their
+    /// values from the same place, so a group is always spelled as its rows are.
     pub fn cell(self, entry: Option<&Entry>) -> String {
         let Some(entry) = entry else {
             return String::new();
         };
-        match self {
-            Self::Key => entry.key.to_string(),
-            Self::Kind => entry.kind.as_str().to_owned(),
-            Self::Author => entry.field("author").map(first_author).unwrap_or_default(),
-            Self::Title => entry.field("title").unwrap_or_default().to_owned(),
-            Self::Year => entry.field("year").unwrap_or_default().to_owned(),
-            Self::Venue => entry
-                .field("journal")
-                .or_else(|| entry.field("booktitle"))
-                .or_else(|| entry.field("publisher"))
-                .map(str::to_owned)
-                .unwrap_or_default(),
-        }
-    }
-}
-
-/// The first author as `Last` when the list is `Last, First`, else as written.
-fn first_author(authors: &str) -> String {
-    let first = authors.split(" and ").next().unwrap_or(authors).trim();
-    match first.split_once(',') {
-        Some((last, _)) => last.trim().to_owned(),
-        None => first.to_owned(),
+        let facet = match self {
+            Self::Author => Facet::Author,
+            Self::Venue => Facet::Venue,
+            Self::Year => Facet::Year,
+            Self::Kind => Facet::Kind,
+            Self::Key | Self::Title => {
+                return match self {
+                    Self::Key => entry.key.to_string(),
+                    _ => entry.field("title").unwrap_or_default().to_owned(),
+                };
+            }
+        };
+        Facet::plain(facet, entry).unwrap_or_default()
     }
 }
 

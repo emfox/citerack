@@ -24,6 +24,11 @@ sharing a DOI, or a title and a year, are named with the pair and the reason, an
 the table can be narrowed to them. `docs/Ui-spec.md` §2 and §5 say what a user
 sees and what counts as the same work.
 
+Facets came off the second list in October 2026 by being done: the Groups panel
+offers author, journal, year and type, pressing a value narrows the table, and the
+count beside a value is what pressing it would leave under the search and the
+other lists. `docs/Ui-spec.md` §6 says what a user sees.
+
 Asynchronous saving was on this list and came off it in October 2026, not because it
 was done but because it was measured and the reason for it did not hold: a save
 costs under a millisecond per mebibyte, so the 150 MiB file the row named takes
@@ -38,7 +43,6 @@ work is.
 
 | Item | What a user gains | Done when |
 | --- | --- | --- |
-| Facets for author, journal and type | narrowing by a click instead of a typed query | each facet narrows the table, and the count beside it reflects the other facets rather than the whole file |
 | Entry editing that follows the type's required fields | a form that answers what the entry type needs | adding an `@article` offers author, title, journal and year, and flags an empty required one |
 | Citation key generation | a key that follows a pattern rather than a shrug | a configurable pattern produces a unique key, and a collision appends a suffix rather than overwriting |
 | Bulk operations | retagging or renaming in one step | a multi-row selection can be edited, and the file is still byte-identical outside the edited fields |

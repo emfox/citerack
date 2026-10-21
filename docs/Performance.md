@@ -7,7 +7,7 @@ command is always the headless one, so a reader with no display can check it.
 ## 1. How to reproduce
 
 ```bash
-cargo build --release
+cargo build --release --bin citerack
 python3 scripts/genlib.py /tmp/bench
 ./target/release/citerack --open-time /tmp/bench/lib100k.bib
 ./target/release/citerack --edit-time /tmp/bench/lib100k.bib
@@ -367,10 +367,88 @@ is not. The title column there holds 20 350 such words out of 42 602, and the ke
 column 95 804 out of 108 376, which is why the change that was made for the invented
 library also touches a real one.
 
-## 8. What is not measured
+## 8. The facet lists
+
+The Groups panel answers "how many rows would this value leave", and the honest
+answer walks the table: every row has to be read for its author, its venue, its
+year and its type, and the count has to know which rows the other three lists
+allow. That is cheap once and ruinous per frame.
+
+Measured on the same machine and build as §2, with a release build of the store
+crate alone and no window. The example that times it lived only for this
+measurement, so the command names it rather than a path a reader can open:
+
+```bash
+cargo build --release --example facet_time
+for f in lib15k lib50k lib100k; do
+  ./target/release/examples/facet_time "/tmp/bench/$f.bib"
+done
+```
+
+| Entries | Four lists, every frame | Four lists, held between changes |
+| --- | --- | --- |
+| 15 000 | 115 ms | 0.0001 ms |
+| 50 000 | 1 155 ms | 0.0001 ms |
+| 100 000 | 4 429 ms | 0.0001 ms |
+| ARCADE, 45 974 | 657 ms | 0.0001 ms |
+| console, 134 352 | 6 421 ms | 0.0001 ms |
+
+The last two rows are the real libraries of §6, unpacked from
+`docs/fixtures/games.zip`; the same example reads them.
+
+**Four seconds a frame is not a slow panel, it is a hung window.** The lists are
+therefore counted when the table or the text behind it changes and read from a
+held `Vec` in between, which is the right column. One pass over the table fills all
+four lists at once, since each row yields its four values in the same visit: four
+lists from one walk rather than four walks.
+
+**The pause a change costs, measured through the window.** The table above is the
+walk alone. The same act in a window on the same machine, timed from the click to
+the first frame that differs from the one before it, by capturing the window until
+it repaints:
+
+| Library | Act | Pause |
+| --- | --- | --- |
+| `lib15k.bib` | pick an author (3 399 rows left of 15 000) | 179 ms |
+| `lib100k.bib` | pick an author (9 200 rows left of 100 000) | 427 ms |
+| `lib100k.bib` | let that author go again | 240–288 ms |
+
+A capture costs 40–200 ms on this machine, so read these as "a fraction of a
+second" rather than as three digits of precision. They are consistent with the
+walk they measure: 4.4 s of counting does not fit inside a 427 ms frame, and 0.1 s
+of it is most of 179 ms.
+
+**A count is recounted as often as a search already was.** Pressing a facet,
+typing a query, undoing an edit and switching the duplicate filter each change the
+table, so each pays a recount on the frame that follows. 115 ms on the ladder's
+15 000 entries is a pause the debounce on the filter box already covers; 4.4 s on
+100 000 is not, and it is the shape of a problem the index solved for searching:
+the count is currently a walk of every row, and it should be a merge of postings.
+Until then, a library of a hundred thousand entries pays a visible pause after each
+change to the table. Typing a query is the case that recovers on its own: the
+recount runs on the frame after the search, so the next keystroke arrives before the
+pause can be felt in two.
+
+**The real libraries are the dearer ones to count.** 134 352 console entries cost
+6.4 s to count, twice the ladder's 100 000, because a real entry carries more
+fields to read. A query narrows that at once: the author list on the same library
+after a query that leaves two rows costs 61 ms.
+
+**Two smaller choices follow from the same walk.** A venue is the journal, else the
+book title, else the publisher, so one list costs up to three field reads per row
+rather than one. A row that leaves a field empty is in no list at all, which is why
+the arcade catalogues show one entry type and no venue: every entry is an `@Misc`
+with no journal. They are a good reminder of what the ladder cannot test. It holds
+11 authors, 900 venues, 75 years and one type for 100 000 rows, where the console
+catalogue holds 10 304 authors, 104 years and one type for 134 352. Neither shape
+is the expensive one; what a real library costs here is a namespace with tens of
+thousands of authors and venues in it, which is the case the ladder does not have.
+
+## 9. What is not measured
 
 | Unmeasured | Why it matters |
 | --- | --- |
 | Time to first frame | it needs a frame-timing harness on a real display; the window is laid out before the file is read, but "before" is a design claim, not a figure |
 | Scroll smoothness at 100 000 rows | the table is virtualised, so the frame cost should not depend on row count, but a claim of that kind needs a frame trace |
+| The frame that recounts the facet lists | §8 times the walk itself, without the window around it; the pause measured through the window is in the same section and is a stopwatch, not a frame trace |
 | A library below a thousand entries | every figure here is a large library; a small one opens in milliseconds, which is fast enough to make the number uninteresting rather than unknown |
