@@ -146,6 +146,8 @@ items, and each is a different query string rather than a different region.
 | `Escape` | filter box | clear the filter | — |
 | `Ctrl`/`Cmd` + `Z` | anywhere | take back the last change | the `Undo` button |
 | `Ctrl`/`Cmd` + `Shift` + `Z`, or `Ctrl` + `Y` | anywhere | put the change back | the `Redo` button |
+| `Down` | table | select the next row | the row itself |
+| `Up` | table | select the previous row | the row itself |
 
 The list is short because a key binding nobody knows about is a key binding
 nobody uses. Each entry here is also reachable from a control, so the keyboard is
@@ -156,9 +158,15 @@ the cursor is in a field box when a user has just finished an edit. The four
 modifier keys fire wherever the focus is; a field box holds no state the library
 has not already been given.
 
+The arrows are the exception that proves the rule: they belong to the text when a
+box holds the cursor, so they move the table only when no box does. A move stops
+at the first and last row rather than wrapping, and the row it lands on is
+scrolled into view, so the selection is never somewhere the user cannot see. With
+nothing selected, `Down` takes the first row and `Up` the last, so either key
+does something from wherever the user starts.
+
 What the keyboard cannot yet do, and what section 1 of `docs/Roadmap.md` is for:
-moving the selection with `Up` and `Down`, and reaching a field box without a
-click.
+reaching a field box without a click.
 
 ## 8. Empty and loading states
 
