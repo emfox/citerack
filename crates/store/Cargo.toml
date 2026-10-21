@@ -1,0 +1,12 @@
+[package]
+name = "citerack-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Opening a library from disk and saving it back without losing a byte it did not change"
+
+[dependencies]
+citerack-bib.workspace = true
+citerack-index.workspace = true
