@@ -13,7 +13,6 @@ outside this repository could install and use daily.
 
 | Item | What a user gains | Done when |
 | --- | --- | --- |
-| Undo and redo over edits | recovering from a wrong edit | `Ctrl+Z` reverses the last edit and a save after it writes the reverted text |
 | Asynchronous save | a large file does not freeze the window while it is written | the status line shows progress and the window stays draggable during a save of 150 MiB |
 | Duplicate detection | finding the same paper entered twice | two entries sharing a DOI, or sharing a title and a year, are listed with the pair and the reason |
 | Keyboard-only navigation | working without a mouse | opening a file, filtering, selecting and reading a detail pane are all reachable from the keyboard, and the path is written down in `docs/Ui-spec.md` |

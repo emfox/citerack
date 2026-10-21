@@ -27,6 +27,10 @@ the repository is not listed here.
   take 13.4 ms and now takes 0.05 ms.
 - `citerack --explain`, which prints how many rows each column holds for a query,
   so a search that returns too much or too little can be traced to a field.
+- `Ctrl+Z` takes back the last edit and `Ctrl+Shift+Z` puts it back, so a wrong
+  value is one keystroke from being undone and a save after it writes the file as
+  it was. A run of typing into one field undoes as one step; a pause starts
+  another, and an edit to several entries undoes together.
 - `citerack --index-report`, which prints where the index spends its memory per
   field, so a library that opens slowly can be traced to the field responsible.
   It also counts the distinct short fragments each field's word list holds and the
