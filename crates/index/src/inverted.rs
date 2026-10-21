@@ -24,12 +24,10 @@ pub struct InvertedIndex {
     /// once in `by_gram`, and a gram names a range of them.
     grams: HashMap<u64, (u32, u32)>,
     by_gram: Vec<WordId>,
-    /// The rows a common short run is *not* in, kept only for a run that sits in
-    /// most rows, because walking the words of a wide vocabulary costs more than
-    /// listing the few rows that lack it.
-    absent: HashMap<u64, Postings>,
-    /// Every distinct word of the column, in the order the ids refer to.
-    dictionary: Vec<Box<str>>,
+    /// The rows of each word, as a range of `flat`, so answering a short term
+    /// never pays a string hash per word.
+    per_word: Vec<(u32, u32)>,
+    flat: Postings,
     len: usize,
 }
 
@@ -50,57 +48,6 @@ fn gram_key(bytes: &[u8]) -> u64 {
     u64::from(u32::from_le_bytes(buf)) | ((bytes.len() as u64) << 32)
 }
 
-/// Below this many rows a table of absent rows costs more than the walk it saves.
-const ABSENT_MIN_ROWS: usize = 10_000;
-
-/// A run whose absent rows outnumber one in this share of the library is not
-/// worth a table, because listing its rows would cost as much as the walk.
-const ABSENT_SHARE: usize = 8;
-
-/// Every key of the given width, so the build can ask which runs of that width
-/// are common without storing the alphabet it walked.
-fn gram_keys(width: usize) -> Vec<u64> {
-    let span = 1u32 << (8 * width);
-    (0..span)
-        .map(|low| u64::from(low) | ((width as u64) << 32))
-        .collect()
-}
-
-/// The rows that lack each of the given runs, in one pass over the values.
-fn lacking_rows(values: &[Option<String>], wanted: &[u64]) -> Vec<Postings> {
-    let mut out: Vec<Postings> = vec![Vec::new(); wanted.len()];
-    let at: HashMap<u64, usize> = wanted.iter().enumerate().map(|(i, k)| (*k, i)).collect();
-    let mut hit: Vec<bool> = vec![false; wanted.len()];
-    let mut fresh: Vec<usize> = Vec::new();
-    for (row, value) in values.iter().enumerate() {
-        fresh.clear();
-        if let Some(text) = value {
-            for term in terms(text) {
-                let bytes = &text.as_bytes()[term.start..term.end];
-                for width in 1..=2usize.min(bytes.len()) {
-                    for start in 0..=bytes.len() - width {
-                        if let Some(slot) = at.get(&gram_key(&bytes[start..start + width])) {
-                            if !hit[*slot] {
-                                hit[*slot] = true;
-                                fresh.push(*slot);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        for slot in 0..wanted.len() {
-            if !hit[slot] {
-                out[slot].push(row as u32);
-            }
-        }
-        for slot in fresh.drain(..) {
-            hit[slot] = false;
-        }
-    }
-    out
-}
-
 impl InvertedIndex {
     /// Indexes every row of one column's folded values. A word a row already
     /// contributed is skipped, because a long abstract repeats its vocabulary and
@@ -109,7 +56,7 @@ impl InvertedIndex {
         let mut runs: HashMap<u32, Postings> = HashMap::new();
         let mut words: HashMap<Box<str>, Postings> = HashMap::new();
         let mut by_gram: Vec<(u64, WordId)> = Vec::new();
-        let mut dictionary: Vec<Box<str>> = Vec::new();
+        let mut words_of: Vec<Box<str>> = Vec::new();
         // Reused across rows, so the per-row set costs one clear and, once the
         // widest cell has been seen, no allocation.
         let mut seen: HashSet<&str> = HashSet::new();
@@ -126,8 +73,8 @@ impl InvertedIndex {
                 // sees it, which keeps that list the size of the vocabulary
                 // rather than the size of the library.
                 if !words.contains_key(word) {
-                    let id = dictionary.len() as WordId;
-                    dictionary.push(word.into());
+                    let id = words_of.len() as WordId;
+                    words_of.push(word.into());
                     for width in 1..WINDOW.min(word.len()) + 1 {
                         let bytes = word.as_bytes();
                         for at in 0..=bytes.len() - width {
@@ -162,7 +109,7 @@ impl InvertedIndex {
         // One sorted array of gram and word, so a gram is a contiguous range. Words
         // are ordered rare first, so a query that fills every row stops early.
         // Reach is computed once, since a key function runs per comparison.
-        let reach: Vec<u32> = dictionary
+        let reach: Vec<u32> = words_of
             .iter()
             .map(|word| words.get(word.as_ref()).map_or(0, |list| list.len()) as u32)
             .collect();
@@ -178,36 +125,22 @@ impl InvertedIndex {
             }
             grams.insert(gram, (start, at - start));
         }
-        // A short run that sits in most rows is cheaper to describe by the rows
-        // that lack it, and listing those is a walk over the rows rather than over
-        // a vocabulary that may be twenty times larger.
-        let mut absent: HashMap<u64, Postings> = HashMap::new();
-        if values.len() >= ABSENT_MIN_ROWS {
-            let mut common: Vec<u64> = Vec::new();
-            for width in 1..=2usize {
-                for key in gram_keys(width) {
-                    if grams
-                        .get(&key)
-                        .is_some_and(|(_, len)| *len as usize >= values.len() / 2)
-                    {
-                        common.push(key);
-                    }
-                }
-            }
-            let budget = values.len() / ABSENT_SHARE;
-            for (key, lacking) in common.iter().zip(lacking_rows(values, &common)) {
-                if lacking.len() <= budget {
-                    absent.insert(*key, lacking);
-                }
-            }
+        let mut per_word: Vec<(u32, u32)> = vec![(0, 0); words_of.len()];
+        let mut flat: Postings = Vec::new();
+        for (id, word) in words_of.iter().enumerate() {
+            let Some(list) = words.get(word.as_ref()) else {
+                continue;
+            };
+            per_word[id] = (flat.len() as u32, list.len() as u32);
+            flat.extend_from_slice(list);
         }
         Self {
             runs,
             words,
             grams,
             by_gram: by_gram.iter().map(|(_, id)| *id).collect(),
-            absent,
-            dictionary,
+            per_word,
+            flat,
             len: values.len(),
         }
     }
@@ -219,43 +152,25 @@ impl InvertedIndex {
         if term.len() >= WINDOW {
             return self.rows_holding_every_run(term);
         }
-        // A common short run is answered by the rows that lack it, which is a list
-        // orders of magnitude shorter than the vocabulary holding it.
-        let key_of_gram = gram_key(term.as_bytes());
-        if let Some(lacking) = self.absent.get(&key_of_gram) {
-            let mut marked = vec![true; self.len];
-            for row in lacking {
-                if let Some(slot) = marked.get_mut(*row as usize) {
-                    *slot = false;
-                }
-            }
-            return marked
-                .iter()
-                .enumerate()
-                .filter(|(_, hit)| **hit)
-                .map(|(row, _)| row as u32)
-                .collect();
-        }
-        // Otherwise a bitmap collects the rows of those words, since sorting the
-        // repeats across many words costs more than marking them. The walk is
-        // rarest first and stops once every row is marked.
-        let Some((start, len)) = self.grams.get(&key_of_gram) else {
+        // A bitmap collects the rows of those words, since sorting the repeats
+        // across many words costs more than marking them. The walk is rarest
+        // first and stops once every row is marked.
+        let Some((start, len)) = self.grams.get(&gram_key(term.as_bytes())) else {
             return Vec::new();
         };
         let mut marked = vec![false; self.len];
         let mut unmarked = self.len;
         for id in &self.by_gram[*start as usize..(*start + *len) as usize] {
-            let Some(word) = self.dictionary.get(*id as usize) else {
+            let Some(&(at, count)) = self.per_word.get(*id as usize) else {
                 continue;
             };
-            if let Some(list) = self.words.get(word.as_ref()) {
-                for row in list {
-                    if let Some(slot) = marked.get_mut(*row as usize)
-                        && !*slot
-                    {
-                        *slot = true;
-                        unmarked -= 1;
-                    }
+            let rows = &self.flat[at as usize..(at + count) as usize];
+            for row in rows {
+                if let Some(slot) = marked.get_mut(*row as usize)
+                    && !*slot
+                {
+                    *slot = true;
+                    unmarked -= 1;
                 }
             }
             if unmarked == 0 {
@@ -417,9 +332,9 @@ mod tests {
     }
 
     #[test]
-    fn a_run_in_most_rows_is_answered_by_the_rows_that_lack_it() {
-        // Above ten thousand rows the build records the rows a common run is not
-        // in, since the vocabulary holding it can be far larger than the rows.
+    fn a_run_in_most_rows_reaches_every_row_that_holds_it() {
+        // A byte as common as `a` sits in nearly every row, and the rows that lack
+        // it must still be excluded on a library wide enough to have many words.
         let values: Vec<Option<String>> = (0..12_000)
             .map(|i| {
                 let value = if i % 1_000 == 0 {
@@ -431,18 +346,10 @@ mod tests {
             })
             .collect();
         let idx = InvertedIndex::build(&values);
-        assert!(
-            idx.absent.contains_key(&gram_key(b"a")),
-            "a run in nearly every row earns a table of the rows that lack it"
-        );
         let hit = idx.rows_with("a");
         assert_eq!(hit.len(), 11_988, "every row but the ones without an a");
         assert!(!hit.contains(&0), "the row without an a is excluded");
         assert!(hit.contains(&1), "a row with an a is kept");
-        assert!(
-            !idx.absent.contains_key(&gram_key(b"z")),
-            "a run in few rows is answered by its words instead"
-        );
         assert_eq!(idx.rows_with("zzz").len(), 12, "a rare run still answers");
     }
 
