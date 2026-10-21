@@ -11,6 +11,7 @@ citerack - a reference manager for large BibTeX libraries
 Usage:
     citerack [FILE.bib]            open a library in a window
     citerack --open-time FILE.bib  parse and index, print the timings, exit
+    citerack --save-time FILE.bib  save an edited copy, print the timings, exit
     citerack --search QUERY FILE   print the first rows a query matches, exit
     citerack --explain QUERY FILE  print what the index holds per term, exit
     citerack --index-report FILE   print where the index spends its memory, exit
@@ -44,6 +45,10 @@ fn main() -> ExitCode {
         Some("--open-time") => match args.next() {
             Some(path) => open_time(PathBuf::from(path)),
             None => usage_error("--open-time needs a file"),
+        },
+        Some("--save-time") => match args.next() {
+            Some(path) => save_time(PathBuf::from(path)),
+            None => usage_error("--save-time needs a file"),
         },
         Some(flag) if flag.starts_with('-') => usage_error(&format!("unknown option {flag}")),
         Some(path) => gui(Some(PathBuf::from(path))),
@@ -92,6 +97,45 @@ fn open_time(path: PathBuf) -> ExitCode {
         }
         Err(err) => {
             eprintln!("{}: {err}", path.display());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Prints how long a save took, on a copy so the library it reads is left alone.
+/// One field is edited first, since a save that writes nothing measures a copy.
+fn save_time(path: PathBuf) -> ExitCode {
+    let mut session = match Session::open(&path) {
+        Ok(session) => session,
+        Err(err) => {
+            eprintln!("{}: {err}", path.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let copy = std::env::temp_dir().join(format!("citerack-save-time-{}.bib", std::process::id()));
+    if let Err(err) = session.set_field(0, 0, "Saved, By Timing") {
+        eprintln!("{}: {err}", path.display());
+        return ExitCode::FAILURE;
+    }
+    let started = std::time::Instant::now();
+    let saved = session.save_as(&copy);
+    let elapsed = started.elapsed().as_secs_f64();
+    let bytes = std::fs::metadata(&copy).map(|meta| meta.len());
+    let _ = std::fs::remove_file(&copy);
+    match (saved, bytes) {
+        (Ok(()), Ok(bytes)) => {
+            println!("file        {}", path.display());
+            println!("entries     {}", session.len());
+            println!("size        {:.2} MiB", bytes as f64 / (1024.0 * 1024.0));
+            println!("save_total  {elapsed:.3} s");
+            ExitCode::SUCCESS
+        }
+        (Err(err), _) => {
+            eprintln!("{}: {err}", path.display());
+            ExitCode::FAILURE
+        }
+        (_, Err(err)) => {
+            eprintln!("{}: {err}", copy.display());
             ExitCode::FAILURE
         }
     }
