@@ -31,7 +31,7 @@ ALLOWLIST_DIRS = {
     "locales": "locale catalogues hold the translated strings",
 }
 
-CODE_SUFFIXES = {".rs", ".toml", ".py", ".sh"}
+CODE_SUFFIXES = {".rs", ".toml", ".py", ".sh", ".yml"}
 DOC_SUFFIXES = {".md", ".rst"}
 
 COMMENT_RE = re.compile(r"^\s*(///|//!|//)")

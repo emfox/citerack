@@ -89,8 +89,13 @@ python3 scripts/check_all.py --list     # what would run, and why
 | --- | --- | --- |
 | `policy` | language and comment density, commit messages | `git` |
 | `repo` | the checkers' own tests | nothing |
-| `rust` | `fmt`, `clippy -D warnings`, `build`, `test` | `cargo` |
+| `rust` | `fmt`, `clippy -D warnings`, `build`, `test`, the Windows exe | `cargo` |
 | `review` | commits that read as more than one change | `git` |
+
+`rust/windows-imports` links the Windows exe on this machine and reads its import
+table. It is a `rust` check and not a release-only one because the failure it
+catches is invisible on the machine that builds the release: a library the
+developer has installed is a library the user is assumed to have.
 
 `review` reports and does not block. A script can measure where lines landed; it
 cannot know why, and a rename or an i18n sweep reaches callers in a shape that
