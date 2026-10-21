@@ -2,6 +2,7 @@
 //! rows a sort would put first. Neither answer needs a window, so both are
 //! computed before one exists.
 
+mod duplicate;
 mod fold;
 mod inverted;
 mod matcher;
@@ -9,6 +10,7 @@ mod search;
 mod sort;
 mod token;
 
+pub use duplicate::{Pair, Reason, find as find_duplicates};
 pub use fold::fold;
 pub use inverted::{InvertedIndex, WINDOW};
 pub use matcher::{FieldRef, Matcher};
