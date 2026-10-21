@@ -146,16 +146,30 @@ impl Searcher {
         Some(rows)
     }
 
-    /// The rows holding `term`, in ascending order and each once. Every column
-    /// answers by lookup, so no row is read to confirm an answer.
+    /// The rows holding `term`, in ascending order and each once, merged through
+    /// one bitmap: a term may name the same row in several fields, and marking it
+    /// costs less than sorting the repeats.
     fn rows_holding(&self, term: &str) -> Vec<u32> {
-        let mut rows: Vec<u32> = Vec::new();
+        let n = self.row_count();
+        let mut marked = vec![false; n];
+        let mut any = false;
         for column in &self.columns {
-            rows.extend_from_slice(&column.inverted.rows_with(term));
+            for row in column.inverted.rows_with(term) {
+                if let Some(slot) = marked.get_mut(row as usize) {
+                    *slot = true;
+                    any = true;
+                }
+            }
         }
-        rows.sort_unstable();
-        rows.dedup();
-        rows
+        if !any {
+            return Vec::new();
+        }
+        marked
+            .iter()
+            .enumerate()
+            .filter(|(_, hit)| **hit)
+            .map(|(row, _)| row as u32)
+            .collect()
     }
 
     /// The rows whose citation key is exactly the query.

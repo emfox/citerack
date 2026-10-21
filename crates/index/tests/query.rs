@@ -233,6 +233,54 @@ fn large(entries: usize) -> citerack_bib::Library {
     parse_str(&text, &Default::default()).unwrap()
 }
 
+/// A library whose every word is unique, the shape a real catalogue has and the
+/// generated one above does not: nothing repeats, so no list shrinks by luck.
+fn high_entropy(entries: usize) -> citerack_bib::Library {
+    let mut text = String::new();
+    for i in 0..entries {
+        let word = format!("w{i:04}x{}", (i * 7919) % 100_003);
+        let other = format!("t{}q", (i * 104_729) % 99_991);
+        text.push_str(&format!(
+            "@misc{{k{i:05},\n  author = {{{word}, Given}},\n  title = {{The {word} of {other}}},\n  \
+             year = {{2000}},\n}}\n\n"
+        ));
+    }
+    parse_str(&text, &Default::default()).unwrap()
+}
+
+/// A short term is answered by the words it sits inside, on a library where no
+/// word is repeated and the vocabulary is as wide as the entry count.
+#[test]
+fn a_short_term_agrees_with_a_scan_on_a_library_of_unique_words() {
+    let lib = high_entropy(3_000);
+    let searcher = Searcher::build(&lib, &SearchOptions::default());
+    for query in ["w", "x", "w0", "x1", "0x", "q", "of", "the", "999", "zzz"] {
+        let matcher = Matcher::new(query);
+        assert_eq!(
+            searcher.search(&matcher, None).rows,
+            searcher.scan_rows(&matcher),
+            "query {query:?} answered differently by the index"
+        );
+    }
+}
+
+/// A short term in most rows is answered by the rows that lack it, which is a
+/// separate table from the words that hold it. The two must agree with a scan,
+/// including on the rows that the table has to exclude.
+#[test]
+fn a_term_most_rows_hold_agrees_with_a_scan() {
+    let lib = high_entropy(12_000);
+    let searcher = Searcher::build(&lib, &SearchOptions::default());
+    for query in ["a", "e", "t", "w", "0", "1", "of", "zzz", "x"] {
+        let matcher = Matcher::new(query);
+        assert_eq!(
+            searcher.search(&matcher, None).rows,
+            searcher.scan_rows(&matcher),
+            "query {query:?} answered differently by the index"
+        );
+    }
+}
+
 /// The index answers what a scan answers on a library far larger than a test's
 /// sample, including a term that only a part of the rows hold.
 #[test]
