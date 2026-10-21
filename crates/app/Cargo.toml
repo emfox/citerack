@@ -1,0 +1,18 @@
+[package]
+name = "citerack"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "A reference manager that opens large BibTeX libraries without freezing"
+default-run = "citerack"
+
+[dependencies]
+citerack-bib.workspace = true
+citerack-index.workspace = true
+citerack-store.workspace = true
+eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+egui = "0.32"
+egui_extras = "0.32"
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
