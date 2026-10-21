@@ -25,3 +25,7 @@ eframe = { version = "0.32", default-features = false, features = ["default_font
 
 [target.'cfg(windows)'.dependencies]
 eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow"] }
+
+[dev-dependencies]
+accesskit = "0.19"
+egui_kittest = { version = "0.32", features = ["eframe"] }
