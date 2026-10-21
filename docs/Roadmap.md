@@ -33,7 +33,6 @@ work is.
 | Bulk operations | retagging or renaming in one step | a multi-row selection can be edited, and the file is still byte-identical outside the edited fields |
 | External file attachments | opening the PDF from the entry | a field naming a path opens that file, and a missing file is reported beside the field rather than as a dialog |
 | Import from DOI and arXiv | typing an identifier instead of an entry | an identifier produces a complete entry, and a failed lookup leaves the library untouched |
-| Locale catalogues | a window in a language other than English | every user-facing string is read from `locales/<tag>/main.ftl` and an unknown tag falls back to English |
 | Windows build | running on the platform most students have | the same three commands in `README.md` produce a working binary on a Windows runner |
 
 ## 3. Decided against
@@ -47,3 +46,4 @@ Kept as a list so the same question is not reopened every few months.
 | Cloud sync | it is a service, with an account, a bill and a privacy policy. A file in a folder the user already syncs is the answer that needs no service |
 | A separate "quick search" and "advanced search" | two boxes to learn instead of one to type into. Field-qualified terms can be added to the one box when a need is demonstrated |
 | Rendering the PDF in the window | a reader has a PDF viewer it already likes. Opening the file hands the job to it |
+| A window in another language | a translated interface is a second thing to keep true, and a user who cannot read the English one is not the reader this release is for. The engine still indexes and matches every script, and every user-facing string is already in one catalogue, so the work can be picked up without touching the engine |
