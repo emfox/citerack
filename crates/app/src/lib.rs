@@ -6,4 +6,4 @@ mod columns;
 mod detail;
 mod ui;
 
-pub use ui::run;
+pub use ui::{App, run};

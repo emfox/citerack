@@ -43,7 +43,7 @@ struct Pending {
 }
 
 /// What the window shows and what it remembers between frames.
-struct App {
+pub struct App {
     session: Option<Session>,
     pending: Option<Pending>,
     error: Option<String>,
@@ -62,7 +62,16 @@ struct App {
 
 impl App {
     fn new(_cc: &eframe::CreationContext<'_>, path: Option<PathBuf>) -> Self {
-        let mut app = Self {
+        let mut app = Self::empty();
+        if let Some(path) = path {
+            app.begin_open(path);
+        }
+        app
+    }
+
+    /// A window with nothing open, which a test then fills in.
+    pub fn empty() -> Self {
+        Self {
             session: None,
             pending: None,
             error: None,
@@ -76,10 +85,14 @@ impl App {
             startup: Some(Instant::now()),
             table_width: 700.0,
             draft: None,
-        };
-        if let Some(path) = path {
-            app.begin_open(path);
         }
+    }
+
+    /// Opens an already-read session, skipping the worker a real open uses.
+    pub fn with_session(session: Session) -> Self {
+        let mut app = Self::empty();
+        app.status = format!("{} entries", session.len());
+        app.session = Some(session);
         app
     }
 
@@ -174,6 +187,29 @@ impl App {
         }
         self.sort = Some(spec);
         self.selected = None;
+    }
+
+    /// Selects a row of the current order, as a click on the table would.
+    pub fn select(&mut self, row: Option<usize>) {
+        if self.selected != row {
+            self.draft = None;
+        }
+        self.selected = row;
+    }
+
+    /// The row the detail pane is showing.
+    pub fn selected(&self) -> Option<usize> {
+        self.selected
+    }
+
+    /// The line at the bottom of the window.
+    pub fn status(&self) -> &str {
+        &self.status
+    }
+
+    /// The session, for a test reading the library behind the window.
+    pub fn session(&self) -> Option<&Session> {
+        self.session.as_ref()
     }
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
@@ -347,6 +383,13 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.draw(ctx);
+    }
+}
+
+impl App {
+    /// One frame, without an eframe frame around it, so a test can call it.
+    pub fn draw(&mut self, ctx: &egui::Context) {
         self.poll_pending(ctx);
         self.settle_query(ctx);
 
