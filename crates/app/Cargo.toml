@@ -12,7 +12,16 @@ default-run = "citerack"
 citerack-bib.workspace = true
 citerack-index.workspace = true
 citerack-store.workspace = true
-eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = "0.32"
 egui_extras = "0.32"
-rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+# The platform dialog: the AppKit panel on macOS, a COM dialog on Windows, and
+# on Linux whichever of the desktop portal or zenity the host offers.
+rfd = "0.15"
+
+# The window backend is per platform: the X11 and Wayland paths carry no weight
+# on Windows.
+[target.'cfg(unix)'.dependencies]
+eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+
+[target.'cfg(windows)'.dependencies]
+eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow"] }
