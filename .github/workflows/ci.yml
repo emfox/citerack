@@ -25,7 +25,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # One step per group, so a failure lands on the run page beside the check
+      # One step per check, so a failure lands on the run page beside the check
       # that produced it rather than inside a summary of nine others.
       - name: policy
         run: python3 scripts/check_all.py --only policy --require-all --verbose
@@ -33,8 +33,20 @@ jobs:
       - name: repo
         run: python3 scripts/check_all.py --only repo --require-all --verbose
 
-      - name: rust
-        run: python3 scripts/check_all.py --only rust --require-all --verbose
+      - name: fmt
+        run: cargo fmt --all --check
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: build
+        run: cargo build --workspace --all-targets
+
+      - name: test
+        run: cargo test --workspace
+
+      - name: perf
+        run: cargo test -p citerack-store --release --test budget
 
   # The Windows exe is linked on Linux, so what it binds is decided here rather than
   # on a machine that would hide a missing import behind the DLL being installed.
