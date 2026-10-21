@@ -10,6 +10,7 @@ command is always the headless one, so a reader with no display can check it.
 cargo build --release
 python3 scripts/genlib.py /tmp/bench
 ./target/release/citerack --open-time /tmp/bench/lib100k.bib
+./target/release/citerack --save-time /tmp/bench/lib100k.bib
 ./target/release/citerack --search "Neural" /tmp/bench/lib100k.bib
 ./target/release/citerack --explain "Neural" /tmp/bench/lib100k.bib
 ./target/release/citerack --index-report /tmp/bench/lib100k.bib
@@ -18,10 +19,12 @@ python3 scripts/genlib.py /tmp/bench
 `scripts/genlib.py` writes the four generated libraries below, so a figure can be
 re-derived from a clean checkout rather than trusted. They are not committed,
 because together they are 140 MiB. The two real libraries live in
-`docs/fixtures/games.zip` and §4 gives the command that unpacks them.
+`docs/fixtures/games.zip` and §5 gives the command that unpacks them.
 
 `--open-time` reports the wall time of reading, parsing and building the index:
-everything the window waits for before it can draw a row. `--search` reports the
+everything the window waits for before it can draw a row. `--save-time` edits one
+field on a copy, writes the whole library and reports how long that took, which is
+the window's save path with the display taken out of it. `--search` reports the
 query alone, after the index exists. `--explain` prints how many rows each column
 holds for each term of a query, which is how a search that returns too much or too
 little is traced to a column. `--index-report` prints, for each column, how many
@@ -121,13 +124,35 @@ the column had ever used and cost 13.4 ms on the unique-word library.
 
 **A fragment in nearly every row** is the case the ladder cannot show, because its
 columns hold forty words each. A real library holds a hundred thousand, and there
-`a` reaches §4. The unique-word library is where the one-row words show their worth:
+`a` reaches §5. The unique-word library is where the one-row words show their worth:
 `w` fell from 1.04 ms to 0.17 ms and `a` from 0.87 ms to 0.34 ms, because neither
 walks a vocabulary any more and both read a run straight out of the solo table. What
 was left was the bitmap the rows are marked in, which is why `a`, a byte in every
 row, still costs twice `w`.
 
-## 4. Whether the figures hold on another library
+## 4. Saving
+
+A save writes the whole library, since a release that reformatted half a file would
+be worse than a slow one. The cost is therefore linear in the file, and the question
+is only whether a large library makes the window wait long enough to notice.
+
+| Library | Entries | Written | Save |
+| --- | --- | --- | --- |
+| `lib100k.bib` | 100 000 | 73.60 MiB | 0.067 s |
+| `lib50k.bib` | 50 000 | 36.79 MiB | 0.020 s |
+| `lib15k.bib` | 15 000 | 11.02 MiB | 0.004 s |
+| The console catalogue | 45 974 | 4.71 MiB | 0.002 s |
+
+That is under a millisecond per mebibyte, so the 150 MiB file this page used to
+leave unmeasured would take about 0.13 s: one frame's worth of pause, not a freeze.
+This is why saving stayed synchronous. A worker thread, a progress line and a rule
+for what a user may edit mid-write would be a state machine in place of 130 ms.
+
+The real catalogue is faster per byte than the generated ladder because most of its
+bytes are a URL that no field touches, and a save copies them through rather than
+re-rendering them.
+
+## 5. Whether the figures hold on another library
 
 The question a benchmark has to answer is not what it measured but what it did not.
 Four shapes are measured, and the two that come from real users disagree with the
@@ -206,7 +231,7 @@ every row must return every row, and a hundred thousand `u32`s cost 0.28 ms to
 build even on the fast path the empty query takes. No index removes that; it is the
 price of the result, not of the search.
 
-## 5. What a high-entropy library would cost
+## 6. What a high-entropy library would cost
 
 Every library above, real or generated, repeats part of its vocabulary. A reviewer
 asked the obvious next question: what if it does not, and what if real data looked
@@ -284,11 +309,10 @@ is not. The title column there holds 20 350 such words out of 42 602, and the ke
 column 95 804 out of 108 376, which is why the change that was made for the invented
 library also touches a real one.
 
-## 6. What is not measured
+## 7. What is not measured
 
 | Unmeasured | Why it matters |
 | --- | --- |
 | Time to first frame | it needs a frame-timing harness on a real display; the window is laid out before the file is read, but "before" is a design claim, not a figure |
 | Scroll smoothness at 100 000 rows | the table is virtualised, so the frame cost should not depend on row count, but a claim of that kind needs a frame trace |
-| Save time on 150 MiB | save is a single write of unchanged bytes and is fast by construction, but it has not been timed |
 | A library below a thousand entries | every figure here is a large library; a small one opens in milliseconds, which is fast enough to make the number uninteresting rather than unknown |

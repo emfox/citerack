@@ -13,9 +13,15 @@ outside this repository could install and use daily.
 
 | Item | What a user gains | Done when |
 | --- | --- | --- |
-| Asynchronous save | a large file does not freeze the window while it is written | the status line shows progress and the window stays draggable during a save of 150 MiB |
 | Duplicate detection | finding the same paper entered twice | two entries sharing a DOI, or sharing a title and a year, are listed with the pair and the reason |
 | A second renderer behind the first | a window that opens on hardware where the GL driver is broken | when `glow` fails to start, the same process is started again with `wgpu` and the window appears instead of exiting with an error |
+
+Asynchronous saving was on this list and came off it in October 2026, not because it
+was done but because it was measured and the reason for it did not hold: a save
+costs under a millisecond per mebibyte, so the 150 MiB file the row named takes
+about 0.13 s. `docs/Performance.md` §4 has the figures and the command that
+re-derives them. A pause that short does not justify a worker thread, and a file
+that large is rare enough that the miss would not be reported.
 
 ## 2. After that
 
