@@ -3,11 +3,16 @@
 //! a benchmark builds one as easily as a screen does.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use citerack_bib::{
-    EditError, EntryId, Library, ParseError, ParseOptions, WriteOptions, parse_str, write_str,
+    EditError, EntryId, EntryState, Library, ParseError, ParseOptions, WriteOptions, parse_str,
+    write_str,
 };
 use citerack_index::{SearchOptions, SearchResult, Searcher, SortKey, SortSpec};
+
+/// How many changes the history keeps, which is more than a user retraces.
+const HISTORY: usize = 100;
 
 /// A library open in memory, with its search index ready.
 pub struct Session {
@@ -18,6 +23,20 @@ pub struct Session {
     order: Vec<usize>,
     /// Whether an edit left the index describing the file rather than the screen.
     stale: bool,
+    /// What each change replaced, oldest first, and what it left behind.
+    past: Vec<Change>,
+    future: Vec<Change>,
+    /// When the last edit landed, which is what a pause is measured from.
+    last_edit: Option<Instant>,
+}
+
+/// One change: a run of edits with no pause long enough to be a separate step.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Change {
+    /// The entries as they were before the change.
+    pub before: Vec<EntryState>,
+    /// The entries as the change left them.
+    pub after: Vec<EntryState>,
 }
 
 /// What went wrong while opening or saving.
@@ -79,6 +98,9 @@ impl Session {
             sort_keys,
             order,
             stale: false,
+            past: Vec::new(),
+            future: Vec::new(),
+            last_edit: None,
         })
     }
 
@@ -155,22 +177,25 @@ impl Session {
     /// since it is cheap; the search index is rebuilt before the next query, so a
     /// long edit session costs one build rather than one per keystroke.
     pub fn set_field(&mut self, entry: usize, field: usize, value: &str) -> Result<(), EditError> {
-        self.library.set_field(EntryId(entry), field, value)?;
-        self.touched(entry);
+        if self.library.replace_field(EntryId(entry), field, value)? {
+            self.touched(entry);
+        }
         Ok(())
     }
 
     /// Adds a field at the end of an entry.
     pub fn add_field(&mut self, entry: usize, name: &str, value: &str) -> Result<(), EditError> {
-        self.library.add_field(EntryId(entry), name, value)?;
-        self.touched(entry);
+        if self.library.append_field(EntryId(entry), name, value)? {
+            self.touched(entry);
+        }
         Ok(())
     }
 
     /// Renames an entry's citation key.
     pub fn set_key(&mut self, entry: usize, key: &str) -> Result<(), EditError> {
-        self.library.set_key(EntryId(entry), key)?;
-        self.touched(entry);
+        if self.library.rename_key(EntryId(entry), key)? {
+            self.touched(entry);
+        }
         Ok(())
     }
 
@@ -181,12 +206,183 @@ impl Session {
         Ok(())
     }
 
-    /// Records that one row changed, and whether the index still describes it.
+    /// Reverses the last change, and says what it was called; `None` when there
+    /// is nothing left to reverse. Whatever is still being typed becomes a step
+    /// first, so the first undo takes back what the screen just showed.
+    pub fn undo(&mut self) -> Option<&'static str> {
+        self.settle_all();
+        let change = self.past.pop()?;
+        let what = self.describe(&change);
+        if self.library.restore(&change.before).is_err() {
+            self.past.push(change);
+            return None;
+        }
+        // The undo is a step of its own, so what it left is not folded into the
+        // change the user has not typed yet.
+        self.library.seal();
+        self.refreshed(&change.before);
+        self.future.push(change);
+        Some(what)
+    }
+
+    /// Puts back the change the last undo reversed, after closing whatever the
+    /// user has typed since.
+    pub fn redo(&mut self) -> Option<&'static str> {
+        self.settle_all();
+        let change = self.future.pop()?;
+        let what = self.describe(&change);
+        if self.library.restore(&change.after).is_err() {
+            self.future.push(change);
+            return None;
+        }
+        self.library.seal();
+        self.refreshed(&change.after);
+        self.past.push(change);
+        Some(what)
+    }
+
+    /// Whether there is a change to reverse.
+    pub fn can_undo(&self) -> bool {
+        !self.past.is_empty()
+    }
+
+    /// Whether there is a change to put back.
+    pub fn can_redo(&self) -> bool {
+        !self.future.is_empty()
+    }
+
+    /// Ends the change in progress, so the next edit becomes a step of its own.
+    /// Only the rows this change touched are recorded, and a change that left
+    /// them as it found them becomes no step at all.
+    pub fn settle(&mut self) {
+        let before = self.library.pending_before();
+        if before.is_empty() {
+            return;
+        }
+        let after: Vec<EntryState> = before
+            .iter()
+            .filter_map(|was| self.library.state_of(was.entry))
+            .collect();
+        self.library.seal();
+        let untouched = after
+            .iter()
+            .zip(&before)
+            .all(|(now, was)| now.text == was.text && now.model == was.model);
+        if untouched {
+            return;
+        }
+        self.push(Change { before, after });
+    }
+
+    /// Ends the change in progress after a clock reading, so a run of typing into
+    /// one field is one step and a pause or a moved cursor starts another.
+    pub fn settle_at(&mut self, at: Instant, within: Duration) {
+        let Some(last) = self.last_edit else {
+            self.settle();
+            return;
+        };
+        if at.duration_since(last) > within {
+            self.settle();
+        }
+    }
+
+    /// Notes that an edit just happened, which is what the pause is measured from.
+    pub fn edited_at(&mut self, at: Instant) {
+        self.last_edit = Some(at);
+    }
+
+    /// Whatever change is still open becomes a step, which a save does before it
+    /// writes.
+    pub fn settle_all(&mut self) {
+        self.settle();
+        self.last_edit = None;
+    }
+
+    /// A name for a change, which is the status line's word for it.
+    fn describe(&self, change: &Change) -> &'static str {
+        let rows: Vec<usize> = change
+            .after
+            .iter()
+            .map(|state| state.entry)
+            .filter(|entry| self.library.span(EntryId(*entry)).is_some())
+            .collect();
+        if rows.len() > 1 {
+            return "an edit to several entries";
+        }
+        let Some(row) = rows.first() else {
+            return "an edit";
+        };
+        let before = change
+            .before
+            .iter()
+            .find(|state| state.entry == *row)
+            .map(|state| &state.model);
+        let after = change
+            .after
+            .iter()
+            .find(|state| state.entry == *row)
+            .map(|state| &state.model);
+        match (before, after) {
+            (Some(before), Some(after)) if before.key != after.key => "renaming an entry",
+            (Some(before), Some(after)) if before.fields.len() != after.fields.len() => {
+                "adding a field"
+            }
+            _ => "editing a field",
+        }
+    }
+
+    /// Records a finished change and drops any redo that no longer applies.
+    fn push(&mut self, change: Change) {
+        self.past.push(change);
+        self.future.clear();
+        // Oldest first, so the oldest goes when the history is longer than a user
+        // could still be thinking about.
+        if self.past.len() > HISTORY {
+            self.past.remove(0);
+        }
+    }
+
+    /// Brings the keys and the index back in line with entries a restore changed.
+    fn refreshed(&mut self, states: &[EntryState]) {
+        for state in states {
+            self.reindexed(state.entry);
+        }
+    }
+
+    /// Records that one row changed: its key, and the postings of every field of
+    /// it in the index, which costs the row rather than the library.
     fn touched(&mut self, entry: usize) {
+        self.reindexed(entry);
+    }
+
+    /// Recomputes one row's sort key and replaces its words in each column.
+    fn reindexed(&mut self, entry: usize) {
         if let Some(key) = self.sort_keys.get_mut(entry) {
             *key = SortKey::of(&self.library, entry);
         }
-        self.stale = true;
+        let names: Vec<String> = self
+            .searcher
+            .field_names()
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect();
+        for name in names {
+            let text = self.text_of(entry, &name);
+            if let Some(next) = self.searcher.replace_field(entry, &name, &text) {
+                self.searcher = next;
+            }
+        }
+    }
+
+    /// One field's text as the index should hold it, so a row that lost a field
+    /// is indexed with an empty one rather than the value it no longer has.
+    fn text_of(&self, entry: usize, name: &str) -> String {
+        self.library
+            .entries()
+            .get(entry)
+            .and_then(|e| e.field(name))
+            .unwrap_or_default()
+            .to_owned()
     }
 
     /// Rebuilds the index if an edit left it behind, which is what keeps a search
