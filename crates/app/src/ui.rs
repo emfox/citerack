@@ -10,7 +10,7 @@ use egui::{Align, Label, Layout, RichText};
 use egui_extras::{Column as TableColumn, TableBuilder};
 
 use crate::columns::{Column, entry_at};
-use crate::detail;
+use crate::detail::{self, Draft, Outcome};
 
 /// How long a keystroke waits before the search runs, so a typed word costs one
 /// query rather than one per character.
@@ -56,6 +56,8 @@ struct App {
     status: String,
     startup: Option<Instant>,
     table_width: f32,
+    /// The field box being typed in, kept between frames so a refusal keeps it.
+    draft: Option<Draft>,
 }
 
 impl App {
@@ -73,6 +75,7 @@ impl App {
             status: String::new(),
             startup: Some(Instant::now()),
             table_width: 700.0,
+            draft: None,
         };
         if let Some(path) = path {
             app.begin_open(path);
@@ -121,6 +124,7 @@ impl App {
                 self.selected = None;
                 self.query.clear();
                 self.applied_query.clear();
+                self.draft = None;
             }
             Err(err) => self.error = Some(format!("{}: {err}", path.display())),
         }
@@ -201,7 +205,12 @@ impl App {
                 }
             }
             ui.separator();
-            if ui.button("Save").clicked() {
+            let unsaved = self.session.as_ref().is_some_and(Session::is_edited);
+            let label = if unsaved { "Save *" } else { "Save" };
+            if ui
+                .add_enabled(self.session.is_some(), egui::Button::new(label))
+                .clicked()
+            {
                 if let Some(session) = &self.session {
                     match session.save() {
                         Ok(()) => self.status = String::from("Saved"),
@@ -315,6 +324,9 @@ impl App {
             });
 
         if let Some(index) = clicked {
+            if self.selected != Some(index) {
+                self.draft = None;
+            }
             self.selected = Some(index);
         }
     }
@@ -357,10 +369,11 @@ impl eframe::App for App {
             .resizable(true)
             .default_width(340.0)
             .show(ctx, |ui| {
-                let entry = self
-                    .selected
-                    .and_then(|row| entry_at(self.session.as_ref(), row));
-                detail::show(ui, entry);
+                let outcome =
+                    detail::show(ui, self.session.as_mut(), self.selected, &mut self.draft);
+                if outcome == Outcome::Edited {
+                    self.status = String::from("Edited, not saved yet");
+                }
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
