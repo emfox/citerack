@@ -25,8 +25,14 @@ the repository is not listed here.
   real library of 134 352 entries used to take 17.9 ms and now takes 2.9 ms, and
   three letters into a library of 30 000 entries with no repeated word used to
   take 13.4 ms and now takes 0.05 ms.
+- An edit costs the row it touched rather than the library: typing into a field of
+  a library of 50 000 entries took 11 s per keystroke and now takes a tenth of a
+  millisecond, and the search that follows costs 82 ms once rather than on every
+  key.
 - `citerack --explain`, which prints how many rows each column holds for a query,
   so a search that returns too much or too little can be traced to a field.
+- `citerack --edit-time`, which measures a keystroke, the search after it, and a
+  second keystroke, so the cost of an edit can be checked without a window.
 - `Ctrl+Z` takes back the last edit and `Ctrl+Shift+Z` puts it back, so a wrong
   value is one keystroke from being undone and a save after it writes the file as
   it was. A run of typing into one field undoes as one step; a pause starts

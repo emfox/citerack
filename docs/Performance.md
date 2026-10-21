@@ -10,6 +10,7 @@ command is always the headless one, so a reader with no display can check it.
 cargo build --release
 python3 scripts/genlib.py /tmp/bench
 ./target/release/citerack --open-time /tmp/bench/lib100k.bib
+./target/release/citerack --edit-time /tmp/bench/lib100k.bib
 ./target/release/citerack --save-time /tmp/bench/lib100k.bib
 ./target/release/citerack --search "Neural" /tmp/bench/lib100k.bib
 ./target/release/citerack --explain "Neural" /tmp/bench/lib100k.bib
@@ -22,7 +23,9 @@ because together they are 140 MiB. The two real libraries live in
 `docs/fixtures/games.zip` and §5 gives the command that unpacks them.
 
 `--open-time` reports the wall time of reading, parsing and building the index:
-everything the window waits for before it can draw a row. `--save-time` edits one
+everything the window waits for before it can draw a row. `--edit-time` reports one
+field replaced, the short search that follows it, and a second field replaced, which
+is the cost a keystroke carries. `--save-time` edits one
 field on a copy, writes the whole library and reports how long that took, which is
 the window's save path with the display taken out of it. `--search` reports the
 query alone, after the index exists. `--explain` prints how many rows each column
@@ -152,7 +155,62 @@ The real catalogue is faster per byte than the generated ladder because most of 
 bytes are a URL that no field touches, and a save copies them through rather than
 re-rendering them.
 
-## 5. Whether the figures hold on another library
+## 5. Editing
+
+A keystroke replaces one field of one row, and the index used to answer it by
+cloning every table of every column and rebuilding the column from scratch: 7.9 s
+per keystroke on 50 000 entries and 31.7 s on 100 000, which made the filter box
+unusable on a library that opened in under two seconds. A field is now edited in
+place, and the tables that name a word rather than a row are laid out again by the
+next search that needs them rather than by each key.
+
+| Library | Entries | One edit | The short search after it | A second edit |
+| --- | --- | --- | --- | --- |
+| `lib15k.bib` | 15 000 | 0.0000 s | 0.019 s | 0.0001 s |
+| `lib50k.bib` | 50 000 | 0.0001 s | 0.082 s | 0.0001 s |
+| `lib100k.bib` | 100 000 | 0.0001 s | 0.195 s | 0.0001 s |
+| `lib30k_unique.bib` | 30 000 | 0.0000 s | 2.31 s | 0.0000 s |
+
+```bash
+for f in lib15k lib50k lib100k lib30k_unique; do
+  ./target/release/citerack --edit-time "/tmp/bench/$f.bib"
+done
+```
+
+**An edit is free and the search after it is not.** A keystroke costs a tenth of a
+millisecond on every library here, because it touches the row's own postings: the
+words it no longer says come out of the lists they are in and the words it says now
+go in. What an edit cannot patch is the table that names a word, since adding one
+word to a gram moves every entry after it. That table is dropped instead, and the
+first short query after the edit builds the ones it reads: a term of four bytes or
+more is answered from the run table, which an edit keeps current, so a query like
+`surname` never triggers a layout at all.
+
+**The cost of a layout is the vocabulary of the column, not the row count.** 15 000
+entries pay 19 ms and 100 000 pay 195 ms, because most of the work is a column
+whose words are nearly all distinct: the `doi` column of the ladder holds 100 000
+distinct values and costs 0.17 s of the 0.195 s, while every other column together
+costs 8 ms. The last row is the shape this page already calls the worst case: a
+library whose every word is new pays 2.3 s, and 1.9 s of it is one column's solo
+table of 19.6 million entries. That is a real cost and it is not hidden, but it is
+paid once per edit rather than once per key, and only when the query is short
+enough to need it.
+
+**What it was, measured the same way.** The same edit on the same libraries:
+
+| Library | Before | After |
+| --- | --- | --- |
+| `lib15k.bib` | 1.07 s | 0.0000 s |
+| `lib50k.bib` | 7.90 s | 0.0001 s |
+| `lib100k.bib` | 31.67 s | 0.0001 s |
+| `lib30k_unique.bib` | 119.13 s | 0.0000 s |
+
+The old cost was proportional to the library, which is why it was invisible on a
+sample and fatal on a real one: two minutes for one keystroke on a library of 30 000
+entries, against a tenth of a millisecond now. The new cost is proportional to the
+row, which is what a keystroke should depend on.
+
+## 6. Whether the figures hold on another library
 
 The question a benchmark has to answer is not what it measured but what it did not.
 Four shapes are measured, and the two that come from real users disagree with the
@@ -231,7 +289,7 @@ every row must return every row, and a hundred thousand `u32`s cost 0.28 ms to
 build even on the fast path the empty query takes. No index removes that; it is the
 price of the result, not of the search.
 
-## 6. What a high-entropy library would cost
+## 7. What a high-entropy library would cost
 
 Every library above, real or generated, repeats part of its vocabulary. A reviewer
 asked the obvious next question: what if it does not, and what if real data looked
@@ -309,7 +367,7 @@ is not. The title column there holds 20 350 such words out of 42 602, and the ke
 column 95 804 out of 108 376, which is why the change that was made for the invented
 library also touches a real one.
 
-## 7. What is not measured
+## 8. What is not measured
 
 | Unmeasured | Why it matters |
 | --- | --- |
