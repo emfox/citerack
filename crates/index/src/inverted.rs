@@ -2,6 +2,7 @@
 //! A query may match inside a word (`ide` is in `indexing`), so the index keeps
 //! whole words and every run of four bytes of every word. A term costs postings.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
@@ -17,6 +18,7 @@ type Postings = Vec<u32>;
 /// Every row that holds a given four-byte run, or a given whole word. Rows are
 /// sorted and deduplicated so two lists intersect in one pass without a second
 /// sort.
+#[derive(Clone)]
 pub struct InvertedIndex {
     runs: HashMap<u32, Postings>,
     words: HashMap<Box<str>, Postings>,
@@ -71,44 +73,116 @@ impl InvertedIndex {
     /// contributed is skipped, because a long abstract repeats its vocabulary and
     /// the repeats would only be written here to be dropped by the dedup below.
     pub fn build(values: &[Option<String>]) -> Self {
-        let mut runs: HashMap<u32, Postings> = HashMap::new();
-        let mut words: HashMap<Box<str>, Postings> = HashMap::new();
-        let mut by_gram: Vec<(u64, WordId)> = Vec::new();
-        let mut solo: Vec<(u64, u32)> = Vec::new();
-        let mut words_of: Vec<Box<str>> = Vec::new();
+        let mut draft = Draft::new();
+        for (row, value) in values.iter().enumerate() {
+            if let Some(text) = value {
+                draft.add(row as u32, text);
+            }
+        }
+        draft.finish()
+    }
+
+    /// This index with one row's text replaced, which is what an edit costs
+    /// rather than a rebuild of the column.
+    pub fn with_row(&self, row: usize, text: Option<&str>) -> Self {
+        let mut draft = Draft::new();
+        for at in 0..self.len {
+            if at != row {
+                draft.push(at as u32, self.rows_of(at));
+            }
+        }
+        if let Some(text) = text {
+            draft.add(row as u32, text);
+        }
+        draft.finish()
+    }
+
+    /// Every row holding one word, which is the inverse of what `build` was given.
+    fn rows_of(&self, row: usize) -> impl Iterator<Item = (Cow<'_, str>, u32)> + '_ {
+        self.words.iter().filter_map(move |(word, rows)| {
+            rows.binary_search(&(row as u32))
+                .ok()
+                .map(|_| (Cow::Borrowed(word.as_ref()), row as u32))
+        })
+    }
+}
+
+/// The columns of one index while they are being collected, before the tables a
+/// query reads are laid out from them.
+struct Draft {
+    runs: HashMap<u32, Postings>,
+    words: HashMap<Box<str>, Postings>,
+    by_gram: Vec<(u64, WordId)>,
+    solo: Vec<(u64, u32)>,
+    words_of: Vec<Box<str>>,
+    len: usize,
+}
+
+impl Draft {
+    fn new() -> Self {
+        Self {
+            runs: HashMap::new(),
+            words: HashMap::new(),
+            by_gram: Vec::new(),
+            solo: Vec::new(),
+            words_of: Vec::new(),
+            len: 0,
+        }
+    }
+
+    /// Records one row's postings for words it already contributed. The runs of
+    /// a word follow from the word, so they are read back off it rather than
+    /// stored twice.
+    fn push<'a>(&mut self, row: u32, held: impl Iterator<Item = (Cow<'a, str>, u32)>) {
+        for (word, _) in held {
+            self.len = self.len.max(row as usize + 1);
+            self.word(row, &word);
+        }
+    }
+
+    /// Records one word of one row, with the runs a query finds it by.
+    fn word(&mut self, row: u32, word: &str) {
+        if !self.words.contains_key(word) {
+            self.words_of.push(word.into());
+        }
+        self.words.entry(word.into()).or_default().push(row);
+        // A word shorter than a run is only ever asked about as a whole word, so
+        // storing its runs would be memory nobody reads.
+        let bytes = word.as_bytes();
+        if bytes.len() < WINDOW {
+            return;
+        }
+        for at in 0..=bytes.len() - WINDOW {
+            self.runs
+                .entry(key(&bytes[at..at + WINDOW]))
+                .or_default()
+                .push(row);
+        }
+    }
+
+    /// Records every word of one row's text, each once.
+    fn add(&mut self, row: u32, text: &str) {
+        self.len = self.len.max(row as usize + 1);
         // Reused across rows, so the per-row set costs one clear and, once the
         // widest cell has been seen, no allocation.
         let mut seen: HashSet<&str> = HashSet::new();
-        for (row, value) in values.iter().enumerate() {
-            let Some(text) = value else { continue };
-            let row = row as u32;
-            seen.clear();
-            for term in terms(text) {
-                let word = &text[term.start..term.end];
-                if !seen.insert(word) {
-                    continue;
-                }
-                // A word's runs are pushed by id here and turned into the gram
-                // table below, once it is known how many rows hold the word.
-                if !words.contains_key(word) {
-                    words_of.push(word.into());
-                }
-                words.entry(word.into()).or_default().push(row);
-                // A word shorter than a run is only ever asked about as a whole
-                // word, so storing its runs would be memory nobody reads.
-                let bytes = word.as_bytes();
-                if bytes.len() < WINDOW {
-                    continue;
-                }
-                // Every run of four bytes, at every offset, so a term landing
-                // anywhere inside a word names the row that holds it.
-                for at in 0..=bytes.len() - WINDOW {
-                    runs.entry(key(&bytes[at..at + WINDOW]))
-                        .or_default()
-                        .push(row);
-                }
+        for term in terms(text) {
+            let word = &text[term.start..term.end];
+            if seen.insert(word) {
+                self.word(row, word);
             }
         }
+    }
+
+    fn finish(self) -> InvertedIndex {
+        let Self {
+            mut runs,
+            mut words,
+            mut by_gram,
+            mut solo,
+            words_of,
+            len,
+        } = self;
         for list in runs.values_mut() {
             list.sort_unstable();
             list.dedup();
@@ -196,7 +270,7 @@ impl InvertedIndex {
             per_word[id] = (flat.len() as u32, list.len() as u32);
             flat.extend_from_slice(list);
         }
-        Self {
+        InvertedIndex {
             runs,
             words,
             grams,
@@ -206,10 +280,12 @@ impl InvertedIndex {
             solo_at,
             per_word,
             flat,
-            len: values.len(),
+            len,
         }
     }
+}
 
+impl InvertedIndex {
     /// The words a gram entry names, as a range of `by_gram`. A start past the end
     /// names nothing, which is an empty range rather than a clamped one.
     fn gram_words(&self, held: u32) -> Range<usize> {

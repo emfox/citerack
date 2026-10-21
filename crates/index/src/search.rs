@@ -43,6 +43,7 @@ pub struct Searcher {
 }
 
 /// One field's folded values, one per entry, with `None` where an entry lacks it.
+#[derive(Clone)]
 struct Column {
     field: FieldRef,
     name: String,
@@ -100,11 +101,46 @@ impl Searcher {
 
     /// The field names this searcher covers, excluding key and type.
     pub fn field_names(&self) -> Vec<&str> {
-        self.columns
+        let mut names: Vec<&str> = self
+            .columns
             .iter()
-            .filter(|c| matches!(c.field, FieldRef::Named(_)))
-            .map(|c| c.name.as_str())
-            .collect()
+            .filter_map(|c| match c.field {
+                FieldRef::Named(_) => Some(c.name.as_str()),
+                FieldRef::Key | FieldRef::Kind => None,
+            })
+            .collect();
+        names.dedup();
+        names
+    }
+
+    /// One field's folded text for one row, whether the row holds it or not. A
+    /// name the index does not cover is a field no entry had when it was built.
+    pub fn value(&self, entry: usize, name: &str) -> Option<Option<&str>> {
+        let column = self
+            .columns
+            .iter()
+            .find(|c| matches!(c.field, FieldRef::Named(_)) && c.name == name)?;
+        Some(column.values.get(entry)?.as_deref())
+    }
+
+    /// This searcher with one field of one entry replaced, so an edit costs the
+    /// text of the entry rather than the text of the library.
+    pub fn replace_field(&self, entry: usize, name: &str, text: &str) -> Option<Self> {
+        let at = self
+            .columns
+            .iter()
+            .position(|c| matches!(c.field, FieldRef::Named(_)) && c.name == name)?;
+        let folded = fold(text);
+        let mut columns = self.columns[..at].to_vec();
+        let mut column = self.columns[at].clone();
+        *column.values.get_mut(entry)? = Some(folded);
+        column.reindex(entry);
+        columns.push(column);
+        columns.extend_from_slice(&self.columns[at + 1..]);
+        Some(Self {
+            columns,
+            fold_key: self.fold_key,
+        })
     }
 
     /// Every entry that holds all of the query's terms; an exact matcher keeps
@@ -293,6 +329,11 @@ impl Column {
             values,
             inverted,
         }
+    }
+
+    /// Re-indexes one row, since the rest of the column did not change.
+    fn reindex(&mut self, entry: usize) {
+        self.inverted = self.inverted.with_row(entry, self.values[entry].as_deref());
     }
 }
 
