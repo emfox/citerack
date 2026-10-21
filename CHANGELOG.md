@@ -21,8 +21,9 @@ the repository is not listed here.
   that hold it. On a library of 100 000 entries a query takes between 0.04 ms and
   4 ms, against 50 ms before.
 - A fragment of one to three letters, which is what a filter box holds after the
-  first keystroke, is answered as fast as a whole word. Typing three letters into
-  a library of 30 000 entries with no repeated word used to take 13 ms and now
-  takes 0.13 ms, and a single letter there used to take 56 ms and now takes 3.6 ms.
+  first keystroke, is answered as fast as a whole word. Typing one letter into a
+  real library of 134 352 entries used to take 17.9 ms and now takes 2.9 ms, and
+  three letters into a library of 30 000 entries with no repeated word used to
+  take 13.4 ms and now takes 0.05 ms.
 - `citerack --explain`, which prints how many rows each column holds for a query,
   so a search that returns too much or too little can be traced to a field.
