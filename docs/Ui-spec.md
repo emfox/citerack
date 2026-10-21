@@ -148,6 +148,9 @@ items, and each is a different query string rather than a different region.
 | `Ctrl`/`Cmd` + `Shift` + `Z`, or `Ctrl` + `Y` | anywhere | put the change back | the `Redo` button |
 | `Down` | table | select the next row | the row itself |
 | `Up` | table | select the previous row | the row itself |
+| `Ctrl`/`Cmd` + `D` | anywhere | put the cursor in the first field of the entry | the first field box |
+| `Tab`, `Shift` + `Tab` | detail pane | next or previous field, wrapping | the fields themselves |
+| `Escape` | detail pane | leave the field box, keeping what was typed | clicking outside it |
 
 The list is short because a key binding nobody knows about is a key binding
 nobody uses. Each entry here is also reachable from a control, so the keyboard is
@@ -165,8 +168,13 @@ scrolled into view, so the selection is never somewhere the user cannot see. Wit
 nothing selected, `Down` takes the first row and `Up` the last, so either key
 does something from wherever the user starts.
 
-What the keyboard cannot yet do, and what section 1 of `docs/Roadmap.md` is for:
-reaching a field box without a click.
+`Ctrl+D` is how the detail pane is reached without a click: it puts the cursor in
+the entry's first field, and from there `Tab` walks the fields in file order,
+wrapping at either end so one key reaches the whole entry. `Tab` and `Escape`
+belong to the pane while a box holds the cursor; everywhere else `Tab` is egui's,
+moving through the toolbar and the facets. `Escape` leaves the box and commits
+what was typed in it, exactly as clicking elsewhere in the pane would, so leaving
+a box never loses an edit.
 
 ## 8. Empty and loading states
 
