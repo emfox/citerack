@@ -430,7 +430,7 @@ impl App {
 
     /// Writes the library back, and says in the status line how it went.
     fn save(&mut self) {
-        let Some(session) = &self.session else {
+        let Some(session) = &mut self.session else {
             return;
         };
         self.status = match session.save() {

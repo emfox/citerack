@@ -65,7 +65,8 @@ pub struct Library {
     layouts: Vec<Option<Layout>>,
     /// The text each edited entry is written as, indexed like `entries`.
     changed: Vec<Option<Box<str>>>,
-    edited: usize,
+    /// Whether each entry was edited since the last save, indexed like `entries`.
+    unsaved: Vec<bool>,
     /// The state of every entry the pending change touches, captured before the
     /// first of its edits. An asker reads this, or `changed` when it is empty.
     before: Vec<(usize, Option<Box<str>>, Entry)>,
@@ -102,7 +103,7 @@ impl Library {
             skipped,
             layouts,
             changed: vec![None; len],
-            edited: 0,
+            unsaved: vec![false; len],
             before: Vec::new(),
         }
     }
@@ -148,14 +149,22 @@ impl Library {
         &self.skipped
     }
 
-    /// Whether any entry has been edited since the file was parsed.
+    /// Whether any entry has been edited since the last save, which is what the
+    /// window calls unsaved work.
     pub fn is_edited(&self) -> bool {
-        self.edited > 0
+        self.unsaved.iter().any(|&unsaved| unsaved)
     }
 
-    /// How many entries were edited.
+    /// How many entries are unsaved.
     pub fn edited_count(&self) -> usize {
-        self.edited
+        self.unsaved.iter().filter(|&&unsaved| unsaved).count()
+    }
+
+    /// Forgets that anything is unsaved, which a save does once the bytes are on
+    /// disk: the file now holds what the model holds. The replacements stay, since
+    /// they still say how the model differs from the file's text.
+    pub fn mark_saved(&mut self) {
+        self.unsaved.fill(false);
     }
 
     /// The entry whose citation key matches, compared exactly.
@@ -284,7 +293,7 @@ impl Library {
         }
         self.changed[id.0] = None;
         self.entries[id.0] = restored;
-        self.edited -= 1;
+        self.unsaved[id.0] = false;
         Ok(())
     }
 
@@ -315,10 +324,8 @@ impl Library {
         }
         // An entry that came back to the file's text is still a written entry,
         // and a save replaces it with its own bytes, which is the same file.
-        if self.changed[id.0].is_none() {
-            self.edited += 1;
-        }
         self.changed[id.0] = Some(text.into_boxed_str());
+        self.unsaved[id.0] = true;
         self.entries[id.0] = next;
         Ok(true)
     }
@@ -388,15 +395,12 @@ impl Library {
             }
             match &state.text {
                 Some(text) => {
-                    if self.changed[state.entry].is_none() {
-                        self.edited += 1;
-                    }
                     self.changed[state.entry] = Some(text.clone());
+                    self.unsaved[state.entry] = true;
                 }
                 None => {
-                    if self.changed[state.entry].take().is_some() {
-                        self.edited -= 1;
-                    }
+                    self.changed[state.entry] = None;
+                    self.unsaved[state.entry] = false;
                 }
             }
             self.entries[state.entry] = state.model.clone();

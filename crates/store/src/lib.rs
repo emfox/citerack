@@ -159,8 +159,14 @@ impl Session {
     }
 
     /// Writes the library back to the path it came from.
-    pub fn save(&self) -> Result<(), StoreError> {
-        self.save_as(&self.path)
+    pub fn save(&mut self) -> Result<(), StoreError> {
+        let path = self.path.clone();
+        self.save_as(&path)?;
+        // The bytes on disk are the model's now, so the window stops calling the
+        // work unsaved and a second save has nothing new to write.
+        self.settle_all();
+        self.library.mark_saved();
+        Ok(())
     }
 
     /// Whether anything has been edited since the file was opened.
