@@ -1,6 +1,6 @@
 //! The window: a toolbar, a filter box, a three-part body and a status line.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
@@ -22,6 +22,9 @@ const ROW_HEIGHT: f32 = 20.0;
 /// How long an edit sits before it counts as a step of its own, so a burst of
 /// changes to one entry undoes together rather than one change at a time.
 const EDIT_PAUSE: Duration = Duration::from_millis(700);
+
+/// The filter box's id, which `Ctrl+F` needs to reach it before it is drawn.
+const FILTER_ID: &str = "filter_query";
 
 /// Opens the window on a library, or on an empty session prompting for one.
 pub fn run(path: Option<PathBuf>) -> eframe::Result<()> {
@@ -62,6 +65,8 @@ pub struct App {
     table_width: f32,
     /// The field box being typed in, kept between frames so a refusal keeps it.
     draft: Option<Draft>,
+    /// Set by `Ctrl+F`, cleared by the frame that puts the cursor in the filter.
+    focus_filter: bool,
 }
 
 impl App {
@@ -89,6 +94,7 @@ impl App {
             startup: Some(Instant::now()),
             table_width: 700.0,
             draft: None,
+            focus_filter: false,
         }
     }
 
@@ -216,12 +222,21 @@ impl App {
         self.session.as_ref()
     }
 
+    /// The file being read right now, which is how a test sees that an open was
+    /// asked for without a dialog standing in the way.
+    pub fn opening(&self) -> Option<&Path> {
+        self.pending.as_ref().map(|pending| pending.path.as_path())
+    }
+
+    /// Whether the filter box holds the cursor, which `Ctrl+F` is for.
+    pub fn filter_focused(&self, ctx: &egui::Context) -> bool {
+        ctx.memory(|memory| memory.has_focus(egui::Id::new(FILTER_ID)))
+    }
+
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if ui.button("Open").clicked() {
-                if let Some(path) = rfd_pick() {
-                    self.begin_open(path);
-                }
+            if ui.button("Open").on_hover_text("Ctrl+O").clicked() {
+                self.ask_for_file();
             }
             ui.separator();
             ui.label("Sort");
@@ -249,14 +264,10 @@ impl App {
             let label = if unsaved { "Save *" } else { "Save" };
             if ui
                 .add_enabled(self.session.is_some(), egui::Button::new(label))
+                .on_hover_text("Ctrl+S")
                 .clicked()
             {
-                if let Some(session) = &self.session {
-                    match session.save() {
-                        Ok(()) => self.status = String::from("Saved"),
-                        Err(err) => self.status = format!("Save failed: {err}"),
-                    }
-                }
+                self.save();
             }
             ui.separator();
             let undo = self.session.as_ref().is_some_and(Session::can_undo);
@@ -278,21 +289,56 @@ impl App {
         });
     }
 
-    /// Ctrl+Z reverses, Ctrl+Shift+Z or Ctrl+Y puts back. The window's history is
-    /// the library's, so the keys work wherever the focus is; a field box never
-    /// holds anything the library has not already been given.
+    /// The key bindings, in one place so `docs/Ui-spec.md` has one thing to
+    /// describe. Save and open follow the platform's own conventions, and undo
+    /// works wherever the cursor is because the history belongs to the library.
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        let (undo, redo) = ctx.input(|i| {
-            let undo = i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::Z);
-            let redo = (i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Z))
-                || (i.modifiers.command && i.key_pressed(egui::Key::Y));
-            (undo, redo)
+        let (open, save, find, undo, redo) = ctx.input(|i| {
+            let command = i.modifiers.command;
+            let plain = command && !i.modifiers.shift;
+            let undo = plain && i.key_pressed(egui::Key::Z);
+            let redo = (command && i.modifiers.shift && i.key_pressed(egui::Key::Z))
+                || (command && i.key_pressed(egui::Key::Y));
+            (
+                plain && i.key_pressed(egui::Key::O),
+                plain && i.key_pressed(egui::Key::S),
+                plain && i.key_pressed(egui::Key::F),
+                undo,
+                redo,
+            )
         });
+        if open {
+            self.ask_for_file();
+        }
+        if save {
+            self.save();
+        }
+        if find {
+            self.focus_filter = true;
+        }
         if undo {
             self.undo();
         } else if redo {
             self.redo();
         }
+    }
+
+    /// Opens the platform's file dialog, which blocks until the user answers.
+    fn ask_for_file(&mut self) {
+        if let Some(path) = rfd_pick() {
+            self.begin_open(path);
+        }
+    }
+
+    /// Writes the library back, and says in the status line how it went.
+    fn save(&mut self) {
+        let Some(session) = &self.session else {
+            return;
+        };
+        self.status = match session.save() {
+            Ok(()) => String::from("Saved"),
+            Err(err) => format!("Save failed: {err}"),
+        };
     }
 
     /// Closes a change once the typing has paused, which is what makes a run of
@@ -353,9 +399,14 @@ impl App {
             let before = self.query.clone();
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.query)
+                    .id(egui::Id::new(FILTER_ID))
                     .hint_text("key, author, title... (space separates terms)")
                     .desired_width(f32::INFINITY),
             );
+            if self.focus_filter {
+                response.request_focus();
+                self.focus_filter = false;
+            }
             // Compare the text rather than trusting `changed()`: an input method
             // or a synthetic key event can edit the buffer without flagging it.
             if self.query != before {
