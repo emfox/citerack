@@ -9,7 +9,7 @@ use citerack_bib::{
     EditError, EntryId, EntryState, Library, ParseError, ParseOptions, WriteOptions, parse_str,
     write_str,
 };
-use citerack_index::{SearchOptions, SearchResult, Searcher, SortKey, SortSpec};
+use citerack_index::{Pair, SearchOptions, SearchResult, Searcher, SortKey, SortSpec};
 
 /// How many changes the history keeps, which is more than a user retraces.
 const HISTORY: usize = 100;
@@ -20,7 +20,14 @@ pub struct Session {
     library: Library,
     searcher: Searcher,
     sort_keys: Vec<SortKey>,
-    order: Vec<usize>,
+    /// The rows a query matched, or every row in file order, in display order.
+    rows: Vec<usize>,
+    /// What the table shows: `rows`, or just the entries in a duplicate pair when
+    /// the window asked for those. Kept apart from `rows` so turning the filter on
+    /// and off does not have to remember which rows the search had picked.
+    view: Vec<usize>,
+    /// Whether the table is showing only the entries in a duplicate pair.
+    only_duplicates: bool,
     /// Whether an edit left the index describing the file rather than the screen.
     stale: bool,
     /// What each change replaced, oldest first, and what it left behind.
@@ -28,6 +35,8 @@ pub struct Session {
     future: Vec<Change>,
     /// When the last edit landed, which is what a pause is measured from.
     last_edit: Option<Instant>,
+    /// The duplicate scan for the current library, dropped when an edit lands.
+    duplicates: Option<Vec<Pair>>,
 }
 
 /// One change: a run of edits with no pause long enough to be a separate step.
@@ -90,17 +99,20 @@ impl Session {
         let sort_keys = (0..library.len())
             .map(|i| SortKey::of(&library, i))
             .collect();
-        let order = (0..library.len()).collect();
+        let rows: Vec<usize> = (0..library.len()).collect();
         Ok(Self {
             path,
             library,
             searcher,
             sort_keys,
-            order,
+            view: rows.clone(),
+            rows,
+            only_duplicates: false,
             stale: false,
             past: Vec::new(),
             future: Vec::new(),
             last_edit: None,
+            duplicates: None,
         })
     }
 
@@ -126,7 +138,40 @@ impl Session {
 
     /// The rows currently displayed, in display order.
     pub fn order(&self) -> &[usize] {
-        &self.order
+        &self.view
+    }
+
+    /// Shows only the entries that are in a duplicate pair, or stops doing so.
+    /// The search and the sort stay as they were, so the filter can be turned off
+    /// without the table losing its place in the library.
+    pub fn show_only_duplicates(&mut self, only: bool) {
+        self.only_duplicates = only;
+        self.refresh_view();
+    }
+
+    /// Whether the table is showing only the duplicate rows.
+    pub fn showing_only_duplicates(&self) -> bool {
+        self.only_duplicates
+    }
+
+    /// Rebuilds what the table shows from the search result and the filter.
+    fn refresh_view(&mut self) {
+        if !self.only_duplicates {
+            self.view.clone_from(&self.rows);
+            return;
+        }
+        self.duplicates();
+        let mut involved = vec![false; self.library.len()];
+        for pair in self.duplicates.iter().flatten() {
+            involved[pair.first] = true;
+            involved[pair.second] = true;
+        }
+        self.view = self
+            .rows
+            .iter()
+            .copied()
+            .filter(|row| involved.get(*row).copied().unwrap_or(false))
+            .collect();
     }
 
     /// Filters to a query, keeping the current sort.
@@ -134,7 +179,8 @@ impl Session {
         self.catch_up();
         let matcher = citerack_index::Matcher::new(query);
         let result = self.searcher.search(&matcher, None);
-        self.order.clone_from(&result.rows);
+        self.rows.clone_from(&result.rows);
+        self.refresh_view();
         result
     }
 
@@ -150,12 +196,54 @@ impl Session {
 
     /// Restores every row and the file order.
     pub fn clear_search(&mut self) {
-        self.order = (0..self.library.len()).collect();
+        self.rows = (0..self.library.len()).collect();
+        self.refresh_view();
     }
 
     /// Reorders the displayed rows, without touching the library.
     pub fn sort(&mut self, spec: &SortSpec) {
-        citerack_index::sort_rows(&mut self.order, &self.sort_keys, spec);
+        citerack_index::sort_rows(&mut self.rows, &self.sort_keys, spec);
+        self.refresh_view();
+    }
+
+    /// The pairs of entries that look like the same work. The scan runs the first
+    /// time it is asked for after a change and is kept until the next one, so a
+    /// window may ask every frame.
+    pub fn duplicates(&mut self) -> &[Pair] {
+        if self.duplicates.is_none() {
+            self.duplicates = Some(citerack_index::find_duplicates(&self.library));
+        }
+        self.duplicates.as_deref().unwrap_or_default()
+    }
+
+    /// How many pairs of entries look like the same work.
+    pub fn duplicate_count(&mut self) -> usize {
+        self.duplicates().len()
+    }
+
+    /// The pairs one entry belongs to, with the key of the entry it paired with
+    /// and what the two matched on, which is what a pane showing that entry needs.
+    pub fn duplicates_of(&mut self, row: usize) -> Vec<(String, String)> {
+        self.duplicates();
+        self.duplicates
+            .iter()
+            .flatten()
+            .filter(|pair| pair.first == row || pair.second == row)
+            .map(|pair| {
+                let other = if pair.first == row {
+                    pair.second
+                } else {
+                    pair.first
+                };
+                let key = self
+                    .library
+                    .entries()
+                    .get(other)
+                    .map(|entry| entry.key.to_string())
+                    .unwrap_or_default();
+                (key, pair.reason.as_str().to_owned())
+            })
+            .collect()
     }
 
     /// Writes the library back to the path it came from.
@@ -350,15 +438,20 @@ impl Session {
 
     /// Brings the keys and the index back in line with entries a restore changed.
     fn refreshed(&mut self, states: &[EntryState]) {
+        self.duplicates = None;
         for state in states {
             self.reindexed(state.entry);
         }
+        self.refresh_view();
     }
 
     /// Records that one row changed: its key, and the postings of every field of
-    /// it in the index, which costs the row rather than the library.
+    /// it in the index, which costs the row rather than the library. A changed row
+    /// can start or end a duplicate pair, so the scan is dropped with it.
     fn touched(&mut self, entry: usize) {
+        self.duplicates = None;
         self.reindexed(entry);
+        self.refresh_view();
     }
 
     /// Recomputes one row's sort key and replaces its words in each column.
