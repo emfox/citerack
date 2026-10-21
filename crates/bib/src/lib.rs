@@ -11,7 +11,7 @@ mod write;
 
 pub use edit::{FieldLayout, Layout};
 pub use error::{ParseError, ParseErrorKind};
-pub use library::{EditError, EntryId, Library, Span};
+pub use library::{EditError, EntryId, EntryState, Library, Span};
 pub use model::{Delimiter, Entry, EntryKind, Field, FieldName};
 pub use parse::{ParseOptions, parse_str};
 pub use write::{WriteOptions, write_str};

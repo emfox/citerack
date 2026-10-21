@@ -66,6 +66,20 @@ pub struct Library {
     /// The text each edited entry is written as, indexed like `entries`.
     changed: Vec<Option<Box<str>>>,
     edited: usize,
+    /// The state of every entry the pending change touches, captured before the
+    /// first of its edits. An asker reads this, or `changed` when it is empty.
+    before: Vec<(usize, Option<Box<str>>, Entry)>,
+}
+
+/// What one entry looked like before the pending change, for an undo record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryState {
+    /// Which entry.
+    pub entry: usize,
+    /// The bytes a save would have written for it, or `None` if it was untouched.
+    pub text: Option<Box<str>>,
+    /// The model it had.
+    pub model: Entry,
 }
 
 impl Library {
@@ -89,6 +103,7 @@ impl Library {
             layouts,
             changed: vec![None; len],
             edited: 0,
+            before: Vec::new(),
         }
     }
 
@@ -174,6 +189,17 @@ impl Library {
 
     /// Replaces the value of one field, at the delimiters it already has.
     pub fn set_field(&mut self, id: EntryId, field: usize, value: &str) -> Result<(), EditError> {
+        self.replace_field(id, field, value).map(drop)
+    }
+
+    /// As `set_field`, and says whether the file changed, since typing a value
+    /// back the way it was is not an edit an undo has to hold.
+    pub fn replace_field(
+        &mut self,
+        id: EntryId,
+        field: usize,
+        value: &str,
+    ) -> Result<bool, EditError> {
         let current = self.entries.get(id.0).ok_or(EditError::Absent)?;
         current.fields.get(field).ok_or(EditError::Absent)?;
         let mut next = current.clone();
@@ -198,6 +224,16 @@ impl Library {
 
     /// Adds a field at the end of an entry.
     pub fn add_field(&mut self, id: EntryId, name: &str, value: &str) -> Result<(), EditError> {
+        self.append_field(id, name, value).map(drop)
+    }
+
+    /// As `add_field`, and says whether the file changed.
+    pub fn append_field(
+        &mut self,
+        id: EntryId,
+        name: &str,
+        value: &str,
+    ) -> Result<bool, EditError> {
         let current = self.entries.get(id.0).ok_or(EditError::Absent)?;
         if current
             .fields
@@ -216,6 +252,11 @@ impl Library {
 
     /// Renames an entry's citation key, keeping its type and every field.
     pub fn set_key(&mut self, id: EntryId, key: &str) -> Result<(), EditError> {
+        self.rename_key(id, key).map(drop)
+    }
+
+    /// As `set_key`, and says whether the file changed.
+    pub fn rename_key(&mut self, id: EntryId, key: &str) -> Result<bool, EditError> {
         let current = self.entries.get(id.0).ok_or(EditError::Absent)?;
         if key.is_empty() || key.bytes().any(is_key_end) {
             return Err(EditError::BadKey);
@@ -235,6 +276,12 @@ impl Library {
             .ok()
             .and_then(|lib| lib.entries().first().cloned())
             .ok_or(EditError::NotInFile)?;
+        // What was before is the entry as the change left it, not as the file had
+        // it, since a revert is one of the edits a change can hold.
+        if !self.before.iter().any(|(row, ..)| *row == id.0) {
+            self.before
+                .push((id.0, Some(text.clone()), self.entries[id.0].clone()));
+        }
         self.changed[id.0] = None;
         self.entries[id.0] = restored;
         self.edited -= 1;
@@ -244,8 +291,8 @@ impl Library {
     /// Writes `next` in place of the entry's model, and records the bytes a save
     /// has to write. A value that cannot be written is refused before anything
     /// changes, so a refused edit never leaves the file's text and model apart.
-    fn commit(&mut self, id: EntryId, next: Entry) -> Result<(), EditError> {
-        self.entries.get(id.0).ok_or(EditError::Absent)?;
+    fn commit(&mut self, id: EntryId, next: Entry) -> Result<bool, EditError> {
+        let current = self.entries.get(id.0).cloned().ok_or(EditError::Absent)?;
         let text = match self.span(id) {
             Some(span) => {
                 let layout = match self.layouts.get(id.0) {
@@ -258,12 +305,100 @@ impl Library {
             }
             None => render(&next).ok_or(EditError::Unwritable)?,
         };
+        if self.entries[id.0] == next {
+            // The entry already says this, so there is nothing to undo either.
+            return Ok(false);
+        }
+        if !self.before.iter().any(|(row, ..)| *row == id.0) {
+            let was = self.changed[id.0].clone();
+            self.before.push((id.0, was, current));
+        }
+        // An entry that came back to the file's text is still a written entry,
+        // and a save replaces it with its own bytes, which is the same file.
         if self.changed[id.0].is_none() {
             self.edited += 1;
         }
         self.changed[id.0] = Some(text.into_boxed_str());
         self.entries[id.0] = next;
+        Ok(true)
+    }
+
+    /// The state of each entry the pending change touched, as each was before the
+    /// change. Empty when the previous edit was already asked about or committed.
+    pub fn pending_before(&self) -> Vec<EntryState> {
+        self.before
+            .iter()
+            .map(|(entry, text, model)| EntryState {
+                entry: *entry,
+                text: text.clone(),
+                model: model.clone(),
+            })
+            .collect()
+    }
+
+    /// The state of each entry that differs from the file, which is what a record
+    /// of an undo or a redo needs to hold.
+    pub fn current_states(&self) -> Vec<EntryState> {
+        self.changed
+            .iter()
+            .enumerate()
+            .filter(|(_, text)| text.is_some())
+            .filter_map(|(entry, text)| {
+                Some(EntryState {
+                    entry,
+                    text: text.clone(),
+                    model: self.entries.get(entry)?.clone(),
+                })
+            })
+            .collect()
+    }
+
+    /// Ends one change, so the next edit starts a record of its own.
+    pub fn seal(&mut self) {
+        self.before.clear();
+    }
+
+    /// Puts entries back to the states recorded, which is what undo and redo do.
+    /// An entry is checked before any is changed, so half a restore is never left
+    /// behind; an entry whose text no longer fits is refused.
+    pub fn restore(&mut self, states: &[EntryState]) -> Result<(), EditError> {
+        for state in states {
+            self.spans.get(state.entry).ok_or(EditError::Absent)?;
+            if let Some(text) = &state.text {
+                self.fits(state.entry, text)?;
+            }
+        }
+        for state in states {
+            match &state.text {
+                Some(text) => {
+                    if self.changed[state.entry].is_none() {
+                        self.edited += 1;
+                    }
+                    self.changed[state.entry] = Some(text.clone());
+                }
+                None => {
+                    if self.changed[state.entry].take().is_some() {
+                        self.edited -= 1;
+                    }
+                }
+            }
+            self.entries[state.entry] = state.model.clone();
+        }
+        self.before.clear();
         Ok(())
+    }
+
+    /// Refuses bytes that would not read back as the entry they stand for.
+    fn fits(&self, entry: usize, text: &str) -> Result<(), EditError> {
+        let span = self.spans.get(entry).copied().flatten();
+        let Some(Some(layout)) = self.layouts.get(entry) else {
+            return Ok(());
+        };
+        let Some(span) = span else { return Ok(()) };
+        layout
+            .rebuild(&self.source[span.start..span.end], &layout_model(text)?)
+            .map(drop)
+            .ok_or(EditError::Unwritable)
     }
 
     /// The spans a save replaces, each with the text that goes in its place, in
@@ -279,8 +414,18 @@ impl Library {
             .collect()
     }
 
-    /// Whether this entry's text differs from the source.
+    /// Whether this entry has been written since the file was read, whether or
+    /// not the writing changed anything.
     fn is_changed(&self, id: EntryId) -> bool {
         self.changed.get(id.0).is_some_and(Option::is_some)
     }
+}
+
+/// The entry a replacement text stands for, read back so a restore can be checked
+/// against the delimiters the file already has.
+fn layout_model(text: &str) -> Result<Entry, EditError> {
+    parse_str(text, &ParseOptions::default())
+        .ok()
+        .and_then(|library| library.entries().first().cloned())
+        .ok_or(EditError::NotInFile)
 }
