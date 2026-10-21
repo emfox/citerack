@@ -154,3 +154,77 @@ fn a_value_that_cannot_be_written_stays_in_its_box() {
     );
     assert!(!harness.state().session().unwrap().is_edited());
 }
+
+#[test]
+fn ctrl_z_puts_back_the_value_that_was_there_before() {
+    let mut harness = opened();
+    retype_year(&mut harness, "2025");
+    assert_eq!(boxes(&harness)[2], "2025");
+
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run();
+
+    assert_eq!(boxes(&harness)[2], "2024");
+    assert_eq!(harness.state().status(), "Undid editing a field");
+    assert!(!harness.state().session().unwrap().is_edited());
+}
+
+#[test]
+fn a_save_after_ctrl_z_writes_the_text_the_edit_replaced() {
+    let mut harness = opened();
+    retype_year(&mut harness, "2025");
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run();
+
+    let session = harness.state().session().unwrap();
+    let written = citerack_bib::write_str(session.library(), &citerack_bib::WriteOptions::Preserve);
+    assert_eq!(written, INPUT, "a save now writes the file as it was");
+}
+
+#[test]
+fn ctrl_shift_z_puts_the_edit_back_after_a_ctrl_z() {
+    let mut harness = opened();
+    retype_year(&mut harness, "2025");
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run();
+    assert_eq!(boxes(&harness)[2], "2024");
+
+    harness.key_press_modifiers(
+        egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+        egui::Key::Z,
+    );
+    harness.run();
+
+    assert_eq!(boxes(&harness)[2], "2025", "the redo shows the edit again");
+    assert_eq!(harness.state().status(), "Redid editing a field");
+    assert!(harness.state().session().unwrap().is_edited());
+}
+
+#[test]
+fn an_undo_with_nothing_to_undo_leaves_the_file_alone() {
+    let mut harness = opened();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run();
+
+    assert_eq!(harness.state().status(), "Nothing to undo");
+    assert!(!harness.state().session().unwrap().is_edited());
+}
+
+#[test]
+fn a_search_after_ctrl_z_finds_the_value_that_came_back() {
+    let mut harness = opened();
+    retype_year(&mut harness, "2025");
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run();
+
+    // The pane reads the library, so the year it shows is the indexed one.
+    let session = harness.state().session().unwrap();
+    let mut again = Session::from_text(
+        PathBuf::from("window.bib"),
+        &citerack_bib::write_str(session.library(), &citerack_bib::WriteOptions::Preserve),
+        &citerack_bib::ParseOptions { recover: true },
+    )
+    .expect("what a save would write parses");
+    assert_eq!(again.search("2024").rows, vec![0], "the old year is back");
+    assert_eq!(again.search("2025").rows.len(), 0, "the new one is gone");
+}
