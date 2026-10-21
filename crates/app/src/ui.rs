@@ -28,17 +28,37 @@ const FILTER_ID: &str = "filter_query";
 
 /// Opens the window on a library, or on an empty session prompting for one.
 pub fn run(path: Option<PathBuf>) -> eframe::Result<()> {
-    let options = eframe::NativeOptions {
+    let name = "citerack";
+    let options = |renderer| eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1400.0, 880.0])
             .with_min_inner_size([800.0, 480.0])
-            .with_title("citerack"),
+            .with_title(name),
+        renderer,
         ..Default::default()
     };
-    eframe::run_native(
-        "citerack",
-        options,
-        Box::new(move |cc| Ok(Box::new(App::new(cc, path)))),
+    let opened = |cc: &eframe::CreationContext<'_>| {
+        Ok(Box::new(App::new(cc, path.clone())) as Box<dyn eframe::App>)
+    };
+    match eframe::run_native(name, options(eframe::Renderer::Glow), Box::new(opened)) {
+        Err(err) if falls_back(&err) => eframe::run_native(
+            name,
+            options(eframe::Renderer::Wgpu),
+            Box::new(move |cc| opened(cc)),
+        ),
+        other => other,
+    }
+}
+
+/// Whether the error says the machine cannot give the window the backend it
+/// asked for, which is the one case another backend can answer.
+pub fn falls_back(err: &eframe::Error) -> bool {
+    matches!(
+        err,
+        eframe::Error::Glutin(_)
+            | eframe::Error::NoGlutinConfigs(..)
+            | eframe::Error::OpenGL(_)
+            | eframe::Error::Wgpu(_)
     )
 }
 

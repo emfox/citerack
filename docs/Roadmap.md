@@ -13,7 +13,11 @@ outside this repository could install and use daily.
 
 | Item | What a user gains | Done when |
 | --- | --- | --- |
-| A second renderer behind the first | a window that opens on hardware where the GL driver is broken | when `glow` fails to start, the same process is started again with `wgpu` and the window appears instead of exiting with an error |
+
+A second renderer came off this list in October 2026 by being done: the process
+opens the window with `glow` and, when the machine refuses it a GL context, asks
+`wgpu` for the same window before it gives up. `CHANGELOG.md` says what a user
+sees.
 
 Duplicate detection came off this list in October 2026 by being done: two entries
 sharing a DOI, or a title and a year, are named with the pair and the reason, and

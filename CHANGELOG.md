@@ -48,6 +48,10 @@ the repository is not listed here.
   offered work that no longer existed. The window now distinguishes "edited since
   the file was read" from "waiting to be written", which is the question the marker
   was always meant to answer.
+- A window opens on hardware whose GL driver is broken. The window is asked for
+  with `glow` first and, when the machine will not give it a GL context, the same
+  process asks `wgpu` for the same window before reporting anything, so a machine
+  that cannot draw one way is tried the other rather than refused.
 - `citerack --save-time`, which writes an edited copy and reports how long it took,
   so the save path can be measured without a window.
 - A duplicate is named where it already appears: the detail pane shows a line for

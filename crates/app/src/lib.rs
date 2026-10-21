@@ -6,4 +6,4 @@ mod columns;
 mod detail;
 mod ui;
 
-pub use ui::{App, run};
+pub use ui::{App, falls_back, run};

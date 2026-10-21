@@ -41,6 +41,11 @@ Linux needs the usual window-development packages: `libxkbcommon-x11-dev` and
 `libfontconfig1-dev` on Debian and Ubuntu. The build has no other system
 dependency.
 
+A window is drawn with OpenGL and, on a machine that will not give it a GL
+context, with Vulkan or DX12 instead, so a broken GL driver is not a reason to
+refuse to start. On Linux that second path needs a Vulkan loader, usually already
+present as `libvulkan1`.
+
 ## Use
 
 ```bash

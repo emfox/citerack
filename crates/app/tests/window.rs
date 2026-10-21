@@ -627,3 +627,41 @@ fn a_library_with_no_pairs_offers_no_button_to_press() {
         "the table did not narrow to an empty set"
     );
 }
+
+/// The error a machine reports when its GL driver will not open a window, which
+/// is the one the second renderer exists to answer.
+fn a_refused_context() -> eframe::Error {
+    use glutin::display::{Display, DisplayApiPreference, GlDisplay as _};
+    use raw_window_handle::{RawDisplayHandle, XlibDisplayHandle};
+
+    let template = glutin::config::ConfigTemplateBuilder::new().build();
+    // SAFETY: no window is passed, and the handle asks for the default display.
+    let handle = RawDisplayHandle::Xlib(XlibDisplayHandle::new(None, 0));
+    let Ok(display) = (unsafe { Display::new(handle, DisplayApiPreference::Egl) }) else {
+        return eframe::Error::NoGlutinConfigs(template, "no display".into());
+    };
+    match unsafe { display.find_configs(template.clone()) } {
+        Err(err) => eframe::Error::Glutin(err),
+        Ok(_) => eframe::Error::NoGlutinConfigs(template, "no config".into()),
+    }
+}
+
+#[test]
+fn a_refused_renderer_is_answered_by_the_other_one() {
+    assert!(
+        citerack::falls_back(&a_refused_context()),
+        "a window the GL driver will not open is tried again with wgpu"
+    );
+}
+
+#[test]
+fn a_window_the_user_closed_is_not_reopened_elsewhere() {
+    // Nothing failed: the event loop ended, and a second window opened on top
+    // would be one the user had already dismissed.
+    assert!(
+        !citerack::falls_back(&eframe::Error::WinitEventLoop(
+            winit::error::EventLoopError::ExitFailure(0)
+        )),
+        "a closed window is left closed"
+    );
+}
