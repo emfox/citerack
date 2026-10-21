@@ -353,14 +353,26 @@ impl Library {
             .collect()
     }
 
-    /// Ends one change, so the next edit starts a record of its own.
-    pub fn seal(&mut self) {
+    /// The state of one entry now, changed or not, so a change can record how it
+    /// left the rows it touched rather than every row the file has seen.
+    pub fn state_of(&self, entry: usize) -> Option<EntryState> {
+        Some(EntryState {
+            entry,
+            text: self.changed.get(entry).cloned().flatten(),
+            model: self.entries.get(entry)?.clone(),
+        })
+    }
+
+    /// Ends one change, so the next edit starts a record of its own, and hands
+    /// back what the change recorded.
+    pub fn seal(&mut self) -> Vec<EntryState> {
+        let recorded = self.pending_before();
         self.before.clear();
+        recorded
     }
 
     /// Puts entries back to the states recorded, which is what undo and redo do.
-    /// An entry is checked before any is changed, so half a restore is never left
-    /// behind; an entry whose text no longer fits is refused.
+    /// Every entry is checked first, so a restore is never left half done.
     pub fn restore(&mut self, states: &[EntryState]) -> Result<(), EditError> {
         for state in states {
             self.spans.get(state.entry).ok_or(EditError::Absent)?;
@@ -369,6 +381,11 @@ impl Library {
             }
         }
         for state in states {
+            if !self.before.iter().any(|(row, ..)| *row == state.entry) {
+                let was = self.changed[state.entry].clone();
+                self.before
+                    .push((state.entry, was, self.entries[state.entry].clone()));
+            }
             match &state.text {
                 Some(text) => {
                     if self.changed[state.entry].is_none() {
@@ -384,7 +401,6 @@ impl Library {
             }
             self.entries[state.entry] = state.model.clone();
         }
-        self.before.clear();
         Ok(())
     }
 

@@ -108,7 +108,7 @@ fn a_value_typed_back_the_way_it_was_is_not_a_change() {
 fn seeding_a_change_leaves_the_state_sealed() {
     let mut lib = library();
     lib.set_field_named(EntryId(0), "year", "2025").unwrap();
-    lib.seal();
+    let _ = lib.seal();
     assert!(lib.pending_before().is_empty(), "the change was committed");
     lib.set_field_named(EntryId(0), "year", "2026").unwrap();
     assert_eq!(lib.pending_before().len(), 1, "the next change starts anew");
@@ -133,7 +133,7 @@ fn a_restore_that_cannot_be_written_changes_nothing() {
 fn a_reverted_entry_has_nothing_left_to_keep() {
     let mut lib = library();
     lib.set_field_named(EntryId(0), "year", "2025").unwrap();
-    lib.seal();
+    let _ = lib.seal();
     lib.revert(EntryId(0)).unwrap();
     assert_eq!(
         written(&lib),
