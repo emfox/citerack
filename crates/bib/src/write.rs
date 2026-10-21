@@ -19,25 +19,49 @@ pub enum WriteOptions {
 /// Writes a library back out.
 pub fn write_str(library: &Library, options: &WriteOptions) -> String {
     match options {
-        WriteOptions::Preserve => library.source().to_owned(),
+        WriteOptions::Preserve => preserve(library),
         WriteOptions::Canonical => canonical(library),
     }
 }
 
+/// The source with each edited entry replaced by the bytes its edit left, and
+/// everything else — an untouched entry, a comment, the blank lines — copied, so
+/// a save changes only what was typed.
+fn preserve(library: &Library) -> String {
+    let replaced = library.replacements();
+    if replaced.is_empty() {
+        return library.source().to_owned();
+    }
+    let source = library.source();
+    let mut out = String::with_capacity(source.len());
+    let mut copied = 0usize;
+    for (span, text) in replaced {
+        out.push_str(&source[copied..span.start]);
+        out.push_str(text);
+        copied = span.end;
+    }
+    out.push_str(&source[copied..]);
+    out
+}
+
 fn canonical(library: &Library) -> String {
     let mut out = String::with_capacity(library.source().len());
-    for entry in library.entries() {
+    for (row, entry) in library.entries().iter().enumerate() {
         let _ = writeln!(out, "@{}{{{},", entry.kind, entry.key);
-        for field in &entry.fields {
+        for (field, value) in entry
+            .fields
+            .iter()
+            .zip(library.values(crate::library::EntryId(row)))
+        {
             match field.delimiter {
                 crate::model::Delimiter::Braces => {
-                    let _ = writeln!(out, "  {} = {{{}}},", field.name_raw, field.value);
+                    let _ = writeln!(out, "  {} = {{{}}},", field.name_raw, value);
                 }
                 crate::model::Delimiter::Quotes => {
-                    let _ = writeln!(out, "  {} = \"{}\",", field.name_raw, field.value);
+                    let _ = writeln!(out, "  {} = \"{}\",", field.name_raw, value);
                 }
                 crate::model::Delimiter::Bare => {
-                    let _ = writeln!(out, "  {} = {},", field.name_raw, field.value);
+                    let _ = writeln!(out, "  {} = {},", field.name_raw, value);
                 }
             }
         }
