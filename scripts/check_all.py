@@ -76,6 +76,8 @@ CHECKS: tuple[Check, ...] = (
         "repo",
         (py("-m", "unittest", "discover", "-s", "scripts", "-p", "test_*.py"),),
     ),
+    # A sample whose bytes moved invalidates every figure measured on it.
+    Check("fixtures", "repo", (py("scripts/fixtures.py", "check"),)),
     Check("fmt", "rust", (("cargo", "fmt", "--all", "--check"),), needs=("cargo",)),
     Check(
         "clippy",
