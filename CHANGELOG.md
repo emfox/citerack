@@ -37,6 +37,13 @@ the repository is not listed here.
   `Escape` leaves the box with what was typed kept. `Ctrl+O`, `Ctrl+S`, `Ctrl+F`,
   `Ctrl+Z` and `Ctrl+Shift+Z` reach the rest, each of them a shortcut for a
   control that is already there.
+- A save now clears the `Save *` marker. Before this, the star stayed after the work
+  had been written, so a saved library still looked unsaved and a second save was
+  offered work that no longer existed. The window now distinguishes "edited since
+  the file was read" from "waiting to be written", which is the question the marker
+  was always meant to answer.
+- `citerack --save-time`, which writes an edited copy and reports how long it took,
+  so the save path can be measured without a window.
 - A tagged release publishes a Linux binary and a Windows one, each with a
   checksum beside it. The Windows build links its runtime statically, so it runs
   on a machine that never had a compiler installed.
