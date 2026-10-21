@@ -17,6 +17,7 @@ outside this repository could install and use daily.
 | Asynchronous save | a large file does not freeze the window while it is written | the status line shows progress and the window stays draggable during a save of 150 MiB |
 | Duplicate detection | finding the same paper entered twice | two entries sharing a DOI, or sharing a title and a year, are listed with the pair and the reason |
 | Keyboard-only navigation | working without a mouse | opening a file, filtering, selecting and reading a detail pane are all reachable from the keyboard, and the path is written down in `docs/Ui-spec.md` |
+| A second renderer behind the first | a window that opens on hardware where the GL driver is broken | when `glow` fails to start, the same process is started again with `wgpu` and the window appears instead of exiting with an error |
 | Packaging | installing without a toolchain | a Linux binary and a macOS bundle are produced by CI, with a checksum beside each |
 
 ## 2. After that
