@@ -54,8 +54,11 @@ class LanguageTest(unittest.TestCase):
     def test_a_fullwidth_colon_is_found(self) -> None:
         self.assertIsNotNone(lang.first_cjk("key: value\uff1a"))
 
-    def test_a_chinese_document_name_is_exempt(self) -> None:
-        self.assertTrue(lang.is_allowlisted("docs/Guide.zh-CN.md"))
+    def test_a_translated_document_is_not_exempt(self) -> None:
+        # There is one document per subject, so a translated copy is prose like any
+        # other and has to be English.
+        self.assertFalse(lang.is_allowlisted("docs/Guide.zh-CN.md"))
+        self.assertFalse(lang.is_allowlisted("README.zh-CN.md"))
 
     def test_an_english_document_is_not_exempt(self) -> None:
         self.assertFalse(lang.is_allowlisted("docs/Architecture.md"))

@@ -26,17 +26,10 @@ ALLOWLIST_FILES = {
     "scripts/check_language.py": "this script matches CJK by definition",
 }
 
-# A Chinese document declares its language in its own name, so a new translation
-# needs no edit here and Chinese inside an English document still fails.
-ALLOWLIST_SUFFIX = ".zh-CN.md"
-
 # Locale catalogues are the translation data, not prose about the code.
 ALLOWLIST_DIRS = {
     "locales": "locale catalogues hold the translated strings",
 }
-
-# The bilingual README pair cross-links by the other language's own name.
-ALLOWLIST_LINE_RE = re.compile(r"\[\u7b80\u4f53\u4e2d\u6587\]\(README\.zh-CN\.md\)")
 
 CODE_SUFFIXES = {".rs", ".toml", ".py", ".sh"}
 DOC_SUFFIXES = {".md", ".rst"}
@@ -98,7 +91,7 @@ def test_module_lines(lines: list[str]) -> set[int]:
 
 
 def is_allowlisted(rel: str) -> bool:
-    if rel in ALLOWLIST_FILES or rel.endswith(ALLOWLIST_SUFFIX):
+    if rel in ALLOWLIST_FILES:
         return True
     parts = rel.split("/")
     if any(d in parts for d in ALLOWLIST_DIRS):
@@ -133,8 +126,6 @@ def check_cjk(files: list[Path]) -> list[str]:
         tested = test_module_lines(lines) if p.suffix == ".rs" else set()
         hits = []
         for number, line in enumerate(lines, 1):
-            if ALLOWLIST_LINE_RE.search(line):
-                continue
             # Inside a test module the literal is the data under test; the rest of
             # the line, a comment or a name, is still held to the rule.
             subject = without_literals(line) if number in tested else line

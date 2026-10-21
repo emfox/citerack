@@ -8,16 +8,24 @@ and a rule that no script can check is written so a reader can check it instead.
 
 All engineering artifacts are English: identifiers, comments, doc comments, file
 names, directory names, commit messages, issue text, and the documents under
-`docs/`. The one exception is a document written for a Chinese-speaking reader,
-which is named `*.zh-CN.md` so the name itself carries the exemption.
+`docs/`. There is one document and no translations: a second copy of a document
+is a second thing to keep true, and the project does not have the readers for it.
 
-`README.md` is English and `README.zh-CN.md` is its translation; the pair
-cross-links.
+**This is a rule about what the project writes, not about what a library
+contains.** The engine must index, fold and match text in any script: accented
+Latin, Greek, Cyrillic, CJK, and the scripts that write without spaces. A search
+that only worked on English would be a defect, and the fixtures and tests that
+hold it include non-Latin input for exactly that reason.
 
-User-facing strings shown in the window live in `locales/<tag>/main.ftl` and are
+The interface is English only, and so is the path for contributing. That is a
+decision about scope, not a claim that another language is less supported: a
+library in any script opens, searches and saves as well as an English one.
+
+User-facing strings shown in the window live in `locales/en/main.ftl` and are
 never inlined into Rust. The engine crates produce an error *kind* plus
-parameters, never a sentence, so a translation can be added without touching
-them.
+parameters, never a sentence. A catalogue in another language would be a
+directory beside that one, and nothing in the engine would have to change to add
+it.
 
 ## 2. Comments
 
@@ -106,12 +114,11 @@ sh scripts/install-hooks.sh
 
 ### 4.1 Exemptions
 
-`check_language.py` fails on CJK in source and documentation. Five exemptions
+`check_language.py` fails on CJK in source and documentation. Four exemptions
 exist, each narrow, and each carries its reason in the script:
 
 | Exemption | Why |
 | --- | --- |
-| any `*.zh-CN.md` | the name declares the language, so a new translation needs no list edit |
 | anything under `locales/` | locale catalogues are the translation data |
 | `docs/Conventions.md` | it names the rule it enforces |
 | `scripts/check_language.py` | it matches CJK by definition |
