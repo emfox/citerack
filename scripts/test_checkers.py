@@ -70,5 +70,41 @@ class LanguageTest(unittest.TestCase):
         self.assertTrue(check_language.is_allowlisted("docs/Conventions.md"))
 
 
+class TestModuleLiteralTest(unittest.TestCase):
+    """A test may hold CJK in a literal, and only there."""
+
+    SOURCE = (
+        "fn split() {}\n"
+        "#[cfg(test)]\n"
+        "mod tests {\n"
+        "    #[test]\n"
+        "    fn one() {\n"
+        '        assert_eq!(w("\u4e2d\u6587"), 1);\n'
+        "    }\n"
+        "}\n"
+    )
+
+    def lines(self, source: str) -> list[str]:
+        return source.splitlines()
+
+    def test_the_literal_of_a_test_module_is_exempt(self) -> None:
+        kept = lang.without_literals(self.lines(self.SOURCE)[5])
+        self.assertIsNone(lang.first_cjk(kept))
+
+    def test_a_comment_in_a_test_module_still_fails(self) -> None:
+        line = '        assert_eq!(w("\u4e2d\u6587"), 1); // \u4e2d\u6587'
+        self.assertIsNotNone(lang.first_cjk(lang.without_literals(line)))
+
+    def test_the_module_body_is_marked_up_to_its_closing_brace(self) -> None:
+        inside = lang.test_module_lines(self.lines(self.SOURCE))
+        self.assertIn(5, inside, "the assertion line")
+        self.assertNotIn(1, inside, "the function before the module")
+        self.assertNotIn(8, inside, "the line after the module")
+
+    def test_a_literal_outside_a_test_module_is_not_exempt(self) -> None:
+        inside = lang.test_module_lines(self.lines(self.SOURCE))
+        self.assertNotIn(1, inside)
+
+
 if __name__ == "__main__":
     unittest.main()

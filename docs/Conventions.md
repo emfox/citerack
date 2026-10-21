@@ -106,7 +106,7 @@ sh scripts/install-hooks.sh
 
 ### 4.1 Exemptions
 
-`check_language.py` fails on CJK in source and documentation. Four exemptions
+`check_language.py` fails on CJK in source and documentation. Five exemptions
 exist, each narrow, and each carries its reason in the script:
 
 | Exemption | Why |
@@ -115,6 +115,11 @@ exist, each narrow, and each carries its reason in the script:
 | anything under `locales/` | locale catalogues are the translation data |
 | `docs/Conventions.md` | it names the rule it enforces |
 | `scripts/check_language.py` | it matches CJK by definition |
+| a string literal inside `#[cfg(test)]` | a test of how non-Latin text is split cannot spell its input any other way |
+
+The test exemption covers the literal and nothing else. A comment beside it, a
+function name, or any literal outside a test module is still prose about the code
+and still fails, and the checker has self-tests holding that boundary in place.
 
 A new exemption is a line in the script with a one-line reason, so every
 exception stays self-documenting.

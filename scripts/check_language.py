@@ -47,6 +47,12 @@ MAX_COMMENT_BLOCK = 3
 # Build output and vendored sources are not this repository's prose.
 SKIP_PREFIXES = ("target/", ".git/", "vendor/")
 
+# A test that checks how non-Latin text is split cannot spell its input any other
+# way, so inside a test module a string literal may hold CJK. The exemption stops
+# at the literal: a comment in the same file is still prose and still fails.
+TEST_MODULE_RE = re.compile(r"^\s*#\[cfg\(test\)\]")
+STRING_LITERAL_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
+
 
 def first_cjk(text: str) -> tuple[int, str] | None:
     for idx, ch in enumerate(text):
@@ -54,6 +60,41 @@ def first_cjk(text: str) -> tuple[int, str] | None:
         if any(lo <= cp <= hi for lo, hi in CJK_RANGES):
             return idx, ch
     return None
+
+
+def without_literals(line: str) -> str:
+    """The line with every string literal removed, so only prose and names remain."""
+    return STRING_LITERAL_RE.sub("", line)
+
+
+def test_module_lines(lines: list[str]) -> set[int]:
+    """The line numbers inside a `#[cfg(test)]` module, by brace depth."""
+    inside: set[int] = set()
+    in_test = False
+    depth = 0
+    pending = False
+    for number, line in enumerate(lines, 1):
+        if pending:
+            # The module's own line carries the brace the body is counted from.
+            depth += line.count("{") - line.count("}")
+            pending = False
+            if depth <= 0:
+                in_test = False
+                continue
+            inside.add(number)
+            continue
+        if not in_test:
+            if TEST_MODULE_RE.match(line):
+                in_test = True
+                pending = True
+            continue
+        depth += line.count("{") - line.count("}")
+        if depth <= 0:
+            # The brace that closes the module is not inside it.
+            in_test = False
+            continue
+        inside.add(number)
+    return inside
 
 
 def is_allowlisted(rel: str) -> bool:
@@ -89,11 +130,16 @@ def check_cjk(files: list[Path]) -> list[str]:
             lines = p.read_text(encoding="utf-8").splitlines()
         except (UnicodeDecodeError, OSError):
             continue
-        hits = [
-            i
-            for i, line in enumerate(lines, 1)
-            if first_cjk(line) and not ALLOWLIST_LINE_RE.search(line)
-        ]
+        tested = test_module_lines(lines) if p.suffix == ".rs" else set()
+        hits = []
+        for number, line in enumerate(lines, 1):
+            if ALLOWLIST_LINE_RE.search(line):
+                continue
+            # Inside a test module the literal is the data under test; the rest of
+            # the line, a comment or a name, is still held to the rule.
+            subject = without_literals(line) if number in tested else line
+            if first_cjk(subject):
+                hits.append(number)
         if not hits:
             continue
         preview = "; ".join(f"L{i}" for i in hits[:6])
