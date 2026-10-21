@@ -67,6 +67,9 @@ pub struct App {
     draft: Option<Draft>,
     /// Set by `Ctrl+F`, cleared by the frame that puts the cursor in the filter.
     focus_filter: bool,
+    /// A row the table should bring into view on the next frame, which is what a
+    /// keyboard move out of sight asks for.
+    scroll_to: Option<usize>,
 }
 
 impl App {
@@ -95,6 +98,7 @@ impl App {
             table_width: 700.0,
             draft: None,
             focus_filter: false,
+            scroll_to: None,
         }
     }
 
@@ -289,11 +293,35 @@ impl App {
         });
     }
 
+    /// Moves the selection by `step` rows, clamped to the table. From nothing
+    /// selected, a down press takes the first row and an up press the last, so
+    /// either key does something wherever the user is.
+    fn move_selection(&mut self, step: isize) {
+        let rows = self.session.as_ref().map_or(0, |s| s.order().len());
+        if rows == 0 {
+            return;
+        }
+        let next = match self.selected {
+            Some(at) => (at as isize + step).clamp(0, rows as isize - 1) as usize,
+            None if step > 0 => 0,
+            None => rows - 1,
+        };
+        if self.selected != Some(next) {
+            self.draft = None;
+        }
+        self.selected = Some(next);
+        self.scroll_to = Some(next);
+    }
+
     /// The key bindings, in one place so `docs/Ui-spec.md` has one thing to
     /// describe. Save and open follow the platform's own conventions, and undo
     /// works wherever the cursor is because the history belongs to the library.
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        let (open, save, find, undo, redo) = ctx.input(|i| {
+        // The arrows move the table only when no box holds the cursor, where they
+        // belong to the text inside it. Asking takes the input lock, so it is asked
+        // before the lock is held rather than from inside.
+        let typing = ctx.wants_keyboard_input();
+        let (open, save, find, undo, redo, down, up) = ctx.input(|i| {
             let command = i.modifiers.command;
             let plain = command && !i.modifiers.shift;
             let undo = plain && i.key_pressed(egui::Key::Z);
@@ -305,6 +333,8 @@ impl App {
                 plain && i.key_pressed(egui::Key::F),
                 undo,
                 redo,
+                !typing && i.key_pressed(egui::Key::ArrowDown),
+                !typing && i.key_pressed(egui::Key::ArrowUp),
             )
         });
         if open {
@@ -320,6 +350,11 @@ impl App {
             self.undo();
         } else if redo {
             self.redo();
+        }
+        if down {
+            self.move_selection(1);
+        } else if up {
+            self.move_selection(-1);
         }
     }
 
@@ -466,6 +501,11 @@ impl App {
             .resizable(true)
             .sense(egui::Sense::click())
             .max_scroll_height(f32::INFINITY);
+        // A row reached by a key is brought into view, and a row reached by a
+        // click is already there under the pointer.
+        if let Some(row) = self.scroll_to.take() {
+            table = table.scroll_to_row(row, None);
+        }
         for width in widths {
             table = table.column(TableColumn::initial(width).at_least(40.0));
         }
