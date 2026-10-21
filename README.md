@@ -25,12 +25,17 @@ Editing, and everything downstream of it, is on the [roadmap](docs/Roadmap.md).
 
 ## Install
 
-There is no package yet. From a checkout:
+Every tagged release publishes a Linux binary and a Windows one, each with a
+`.sha256` beside it. From a checkout instead:
 
 ```bash
 cargo build --release
 ./target/release/citerack library.bib
 ```
+
+On Windows the build targets MSVC with the runtime linked statically, so the exe
+needs no redistributable. It has no signature, so Windows may ask before running
+it; the checksum is how to tell it apart from anything else with that name.
 
 Linux needs the usual window-development packages: `libxkbcommon-x11-dev` and
 `libfontconfig1-dev` on Debian and Ubuntu. The build has no other system

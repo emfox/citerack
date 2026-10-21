@@ -31,6 +31,9 @@ the repository is not listed here.
   value is one keystroke from being undone and a save after it writes the file as
   it was. A run of typing into one field undoes as one step; a pause starts
   another, and an edit to several entries undoes together.
+- A tagged release publishes a Linux binary and a Windows one, each with a
+  checksum beside it. The Windows build links its runtime statically, so it runs
+  on a machine that never had a compiler installed.
 - `citerack --index-report`, which prints where the index spends its memory per
   field, so a library that opens slowly can be traced to the field responsible.
   It also counts the distinct short fragments each field's word list holds and the
