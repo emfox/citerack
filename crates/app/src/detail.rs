@@ -78,10 +78,12 @@ pub fn show(
                             _ => current[index].clone(),
                         };
                         let width = (ui.available_width() - 8.0).max(80.0);
+                        // One line per field, scrolled sideways when a value is
+                        // longer than the pane: a wrapped title would push every
+                        // field after it off the bottom of a narrow window.
                         let response = ui.add(
-                            TextEdit::multiline(&mut text)
+                            TextEdit::singleline(&mut text)
                                 .desired_width(width)
-                                .desired_rows(1)
                                 .id_salt(("field", row, index)),
                         );
                         if response.has_focus() {
