@@ -3,7 +3,10 @@
 What a reader of the release notes can now do. Anything that changed only inside
 the repository is not listed here.
 
-## Unreleased
+## 0.1.0 - 21 October 2026
+
+The first release. A library opens in a window, a filter box narrows it, and an
+edited field is written back without moving a byte the edit did not touch.
 
 ### Added
 

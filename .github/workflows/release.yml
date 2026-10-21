@@ -95,17 +95,30 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
+      # The notes come from `CHANGELOG.md`, so this job reads the tree too.
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
-      - name: List what will be published
-        run: ls -l dist
+      - name: Name what will be published
+        run: |
+          ls -l dist
+          # A version section ends at the next one, and the file ends after it.
+          awk '/^## /{n++} n==1' CHANGELOG.md |
+            sed '1s/^## /# citerack /' > RELEASE.md
+          head -5 RELEASE.md
 
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          body_path: RELEASE.md
+          # The notes say what a user gains, which is `CHANGELOG.md` up to its
+          # first release; the workflow says which commit built the files.
+          append_body: true
+          generate_release_notes: false
           body: |
             Built from ${{ github.sha }} by the release workflow.
 

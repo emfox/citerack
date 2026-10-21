@@ -46,6 +46,11 @@ context, with Vulkan or DX12 instead, so a broken GL driver is not a reason to
 refuse to start. On Linux that second path needs a Vulkan loader, usually already
 present as `libvulkan1`.
 
+Nothing has to be installed beside the binaries: the Windows exe binds only
+libraries that every Windows has. The shader compiler the DX12 path needs
+is taken from the system directory if it is there, and the path is left out if it
+is not.
+
 ## Use
 
 ```bash
@@ -58,6 +63,11 @@ citerack --search "zhou 2024" library.bib
 `--open-time` and `--search` need no display, which is how the figures in
 [docs/Performance.md](docs/Performance.md) are produced and how a bug report can
 quote a number that means something.
+
+In the window: `Ctrl+O` opens a library, `Ctrl+S` saves it, `Ctrl+F` reaches the
+filter box, and `Ctrl+Z` and `Ctrl+Shift+Z` take back and put back an edit.
+`Up` and `Down` walk the table, `Ctrl+D` reaches the fields of the selected entry,
+and `Tab` walks them. Nothing needs a mouse.
 
 ## How it is built
 
