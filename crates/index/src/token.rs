@@ -78,6 +78,36 @@ mod tests {
     }
 
     #[test]
+    fn every_script_is_split_on_what_separates_its_words() {
+        // A script that writes without spaces keeps its run whole, and one that
+        // writes with them is split by them, so a search is not English-only.
+        // Cyrillic, Greek and Arabic, spelled as escapes so this file stays ASCII.
+        let cases: [(&str, [&str; 2]); 3] = [
+            (
+                "\u{41d}\u{435}\u{439}\u{440}\u{43e}\u{43d}\u{43d}\u{44b}\u{435} \u{441}\u{435}\u{442}\u{438}",
+                [
+                    "\u{41d}\u{435}\u{439}\u{440}\u{43e}\u{43d}\u{43d}\u{44b}\u{435}",
+                    "\u{441}\u{435}\u{442}\u{438}",
+                ],
+            ),
+            (
+                "\u{3bd}\u{3b5}\u{3c5}\u{3c1}\u{3c9}\u{3bd}\u{3b9}\u{3ba}\u{3ac} \u{3b4}\u{3af}\u{3ba}\u{3c4}\u{3c5}\u{3b1}",
+                [
+                    "\u{3bd}\u{3b5}\u{3c5}\u{3c1}\u{3c9}\u{3bd}\u{3b9}\u{3ba}\u{3ac}",
+                    "\u{3b4}\u{3af}\u{3ba}\u{3c4}\u{3c5}\u{3b1}",
+                ],
+            ),
+            (
+                "\u{645}\u{62d}\u{645}\u{62f} \u{639}\u{644}\u{64a}",
+                ["\u{645}\u{62d}\u{645}\u{62f}", "\u{639}\u{644}\u{64a}"],
+            ),
+        ];
+        for (text, want) in cases {
+            assert_eq!(words(text), want.to_vec());
+        }
+    }
+
+    #[test]
     fn terms_come_back_in_order_and_cover_the_words() {
         let text = "a study of something";
         let spans: Vec<&str> = terms(text).iter().map(|t| &text[t.start..t.end]).collect();

@@ -37,3 +37,8 @@ the repository is not listed here.
   repeated word open in 2.85 s and 697 MiB rather than 3.68 s and 765 MiB. A library
   that repeats most of its words pays up to 21 MiB for the change, and a filter box
   over one letter is faster on every library measured.
+- A library written in any script searches as well as an English one: the filter
+  box splits Greek, Cyrillic, Arabic and CJK text on what separates its words, and
+  a Chinese title is matched by a run of its characters. The interface itself is
+  English only, and that is a scope decision rather than a limit on what can be
+  opened.
