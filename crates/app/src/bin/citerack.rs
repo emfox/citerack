@@ -138,6 +138,7 @@ fn explain(path: PathBuf, query: &str) -> ExitCode {
 }
 
 fn gui(path: Option<PathBuf>) -> ExitCode {
+    detach_console();
     match citerack::run(path) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
@@ -146,3 +147,30 @@ fn gui(path: Option<PathBuf>) -> ExitCode {
         }
     }
 }
+
+/// Dropping the console keeps a window from opening beside a black rectangle.
+/// Nothing below this point prints, and no child inherits the console either.
+#[cfg(windows)]
+fn detach_console() {
+    use std::os::windows::io::AsRawHandle;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn FreeConsole() -> i32;
+        fn SetStdHandle(kind: u32, handle: *mut core::ffi::c_void) -> i32;
+    }
+
+    // SAFETY: both take no pointer the caller owns and fail rather than trap.
+    unsafe {
+        FreeConsole();
+        let null = std::fs::File::open("NUL")
+            .map(|file| file.as_raw_handle() as *mut core::ffi::c_void)
+            .unwrap_or(std::ptr::null_mut());
+        for kind in [0xffff_fff4u32, 0xffff_fff5, 0xffff_fff6] {
+            SetStdHandle(kind, null);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn detach_console() {}
