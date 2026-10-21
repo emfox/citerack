@@ -12,18 +12,21 @@ python3 scripts/genlib.py /tmp/bench
 ./target/release/citerack --open-time /tmp/bench/lib100k.bib
 ./target/release/citerack --search "Neural" /tmp/bench/lib100k.bib
 ./target/release/citerack --explain "Neural" /tmp/bench/lib100k.bib
+./target/release/citerack --index-report /tmp/bench/lib100k.bib
 ```
 
 `scripts/genlib.py` writes the four generated libraries below, so a figure can be
 re-derived from a clean checkout rather than trusted. They are not committed,
-because together they are 140 MiB. The two real libraries are public and §4 gives
-the command that fetches them.
+because together they are 140 MiB. The two real libraries live in
+`docs/fixtures/games.zip` and §4 gives the command that unpacks them.
 
 `--open-time` reports the wall time of reading, parsing and building the index:
 everything the window waits for before it can draw a row. `--search` reports the
 query alone, after the index exists. `--explain` prints how many rows each column
 holds for each term of a query, which is how a search that returns too much or too
-little is traced to a column.
+little is traced to a column. `--index-report` prints how many postings, runs and
+words each column holds, which is how a library that opens slowly is traced to the
+column and the structure responsible.
 
 The budget tests run the same path and fail when a limit is crossed:
 
@@ -123,16 +126,19 @@ two that are generated in a way worth naming.
 | `console` | 134 352 | 0.70 s | 254 MiB | a user's console-game catalogue |
 
 The first two rows come from `scripts/genlib.py` and anyone can redo them. The last
-two are real libraries that a user attached to a bug report about slow scrolling,
-and they are public:
+two are real libraries that a user attached to a bug report about slow scrolling.
+The archive is committed at `docs/fixtures/games.zip`, with its digest and the
+digests of its two members in `docs/fixtures/README.md`, so every figure below can
+be redone from a clone:
 
 ```bash
-curl -L -o games.zip https://github.com/JabRef/jabref/files/12431973/games.zip
-unzip games.zip   # ARCADE.bib, 4 936 765 bytes; console.bib, 13 903 784 bytes
+unzip -o docs/fixtures/games.zip -d /tmp/fixtures
+./target/release/citerack --open-time /tmp/fixtures/console.bib
 ```
 
-Check the two byte counts after unzipping. A changed upload is a different library
-and the figures below no longer describe it.
+`python3 scripts/fixtures.py check` fails if those bytes ever move, because a
+library with a different digest is a different library and these figures would
+stop describing it.
 
 The real libraries open *faster* than the generated ones, because a real entry
 carries fewer words than a generated abstract does. ARCADE opens in 0.26 s, and
@@ -185,7 +191,62 @@ every row must return every row, and a hundred thousand `u32`s cost 0.26 ms to
 build even on the fast path the empty query takes. No index removes that; it is the
 price of the result, not of the search.
 
-## 5. What is not measured
+## 5. What a high-entropy library would cost
+
+Every library above, real or generated, repeats part of its vocabulary. A reviewer
+asked the obvious next question: what if it does not, and what if real data looked
+like that? The honest answer is that no real bibliography does, and then a number
+for what would happen if one did.
+
+**The shape is built, not found.** `scripts/widen.py` reads `console.bib` out of the
+fixture archive and appends N new words to every entry's abstract, leaving the row
+count and the entry shape untouched. Every added word is random, so every one is
+unique: at N=20 the abstract column holds 2 687 040 distinct words for 134 352 rows,
+and no word appears twice anywhere in the column.
+
+| Words added per entry | Distinct words | Open | Peak memory | `a` |
+| --- | --- | --- | --- | --- |
+| 0 (the real library) | 144 122 | 0.75 s | 253 MiB | 3.0 ms |
+| 2 | 412 826 | 2.15 s | 559 MiB | 3.8 ms |
+| 5 | 815 882 | 4.41 s | 976 MiB | 4.0 ms |
+| 10 | 1 524 000 | 8.01 s | 1 687 MiB | 4.6 ms |
+| 20 | 2 831 162 | 16.78 s | 3 120 MiB | 5.3 ms |
+
+```bash
+python3 scripts/widen.py docs/fixtures/games.zip /tmp/widen console.bib 0 2 5 10 20
+for f in /tmp/widen/*.bib; do ./target/release/citerack --open-time "$f"; done
+```
+
+**What regresses, and by how much.** Opening grows from 22 times the real library's
+time and 12 times its memory at the twentieth additional word, and the growth is
+close to linear in distinct words rather than in rows: the library is 3.6 times its
+original size, but its vocabulary is 20 times larger and its opening time 22 times
+longer. A query barely notices, from 3.0 ms to 5.3 ms, because a query costs the
+words its own term names and not the words that exist.
+
+**Where the memory goes.** `--index-report` names the column, and a build with the
+gram table switched off names the structure: on the +20 library the abstract column
+holds 26 519 575 postings, and 2 150 of the 3 120 MiB are the gram table, a
+`(u64, word)` pair for every run of one to four bytes of every word. The four-byte
+run table is only 183 MiB by comparison.
+
+**Why real data cannot have this shape.** Counted on the same files, in words rather
+than entries: the console catalogue runs 11.2 tokens per distinct word and ARCADE
+9.5, so 91 percent and 89 percent of what they say has been said before. A library
+whose every word is new sits at 1.0 by construction. Real bibliographies repeat
+their venues, their authors, their publishers, their method names and their
+citation keys, and even the console catalogue — auto-imported game metadata rather
+than scholarly work — repeats nine words in ten. Two million distinct words would
+need two million entries sharing no word with any other, which is not a
+bibliography.
+
+**The case that does happen is narrower and cheaper.** The console catalogue is 73
+percent single-occurrence words: 105 749 of its 144 122 distinct words appear in
+exactly one entry. That is the real version of this problem, and it is why the +20
+row is worth publishing rather than dismissing: the direction is real even though
+the magnitude is not.
+
+## 6. What is not measured
 
 | Unmeasured | Why it matters |
 | --- | --- |
