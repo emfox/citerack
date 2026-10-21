@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The history checks read every commit, which a shallow clone loses.
+          fetch-depth: 0
+
+      - name: Install the window development packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-x11-dev libfontconfig1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # One step per group, so a failure lands on the run page beside the check
+      # that produced it rather than inside a summary of nine others.
+      - name: policy
+        run: python3 scripts/check_all.py --only policy --require-all --verbose
+
+      - name: repo
+        run: python3 scripts/check_all.py --only repo --require-all --verbose
+
+      - name: rust
+        run: python3 scripts/check_all.py --only rust --require-all --verbose
