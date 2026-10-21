@@ -32,7 +32,7 @@ library's business; what matters is where the eye goes and what a keystroke does
 | Filter box | top, fixed height, full width | the one control used most, and a full width means a long query stays visible |
 | Groups | left, resizable, collapsible | a facet list; it narrows what the table holds and never holds data itself |
 | Table | centre, takes the remaining space | the main content, so it gets every pixel the others do not claim |
-| Detail | right, resizable, collapsible | fields of the selected row, read-only in this release |
+| Detail | right, resizable, collapsible | fields of the selected row, each one editable in place |
 | Status line | bottom, fixed height | one sentence about what just happened, in the same place every time |
 
 The five-region split is the arrangement a bibliography tool has trained its
@@ -46,16 +46,17 @@ find the table in the middle and the fields on the right without being told.
 | --- | --- |
 | Open | asks for a `.bib` file and replaces the session |
 | Sort by Key / Author / Year / Title | sorts by that column; clicking the active one reverses it |
-| Save | writes the file back, byte for byte when nothing changed |
+| Save | writes the file back, byte for byte outside the fields that were edited |
 
 The sort buttons carry `^` or `v` showing the direction. Clicking a different
 field sorts it ascending; clicking the same field again flips the direction.
 This is the behaviour of a table header, exposed as a button because the header
 is also a drag target for resizing.
 
-Save has no confirmation dialog in this release, because it cannot lose an edit
-this release does not allow. When editing arrives, Save becomes asynchronous and
-the status line becomes its progress.
+Save carries a `*` while an edit is not yet written to the file. There is no
+confirmation dialog: a save cannot lose an edit, because a value that cannot be
+written where it sits is refused when it is typed rather than when it is saved.
+When the save grows asynchronous, the status line becomes its progress.
 
 ## 3. Filter box
 
@@ -110,8 +111,20 @@ one. Fields the parser did not model appear here too, because the pane is drawn
 from the parsed list rather than from a fixed schema: whatever the file held is
 what the user sees.
 
-This release is read-only. The roadmap carries editing; the pane is laid out so
-that each row can become a text box without moving anything else.
+Every value is a text box. A value is committed when the box loses focus, so
+typing a word does not rewrite the entry once per keystroke, and what is saved is
+the text once the user has finished with it.
+
+A value that cannot be written where it sits is refused rather than escaped: a
+brace that would close the entry early, a quote that would end a quoted value, or
+a word written into a bare field cannot be stored without changing the delimiters,
+and the delimiters belong to the file. The box keeps the refused text and the
+reason appears under the grid, so the typing is not thrown away.
+
+Only the bytes of an edited value move in the file. The delimiters, the spacing
+around the `=`, the order of the fields and every byte of every other entry stay
+as the file had them, which is what lets a hand-formatted library be edited here
+rather than only read.
 
 ## 6. Groups
 

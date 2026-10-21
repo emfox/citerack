@@ -42,3 +42,17 @@ the repository is not listed here.
   a Chinese title is matched by a run of its characters. The interface itself is
   English only, and that is a scope decision rather than a limit on what can be
   opened.
+- Correct a typo without leaving the window. Every field in the detail pane is a
+  text box, and a value is committed when the box loses focus, so what is saved is
+  the text you finished typing rather than every keystroke on the way.
+- A save writes only the values that were edited, and every other byte of the file
+  stays as it was: the delimiters, the spacing around the `=`, the field order,
+  the comments and every entry nobody touched. On a real 45 974-entry library,
+  editing one title changed 44 bytes of 4 936 765.
+- A value that cannot be written where it sits is refused when it is typed, not
+  when it is saved: a brace that would close the entry early, or a word in a bare
+  field, leaves the file alone and the reason appears under the fields.
+- Editing a field costs 25 µs on a 45 974-entry library rather than the second a
+  full reindex used to take, because the index is rebuilt before the next search
+  rather than on every edit.
+- Save carries a `*` while an edit is unsaved.
