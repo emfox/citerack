@@ -19,6 +19,10 @@ const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 /// Row height in points; a two-line title would make every row as tall as it is.
 const ROW_HEIGHT: f32 = 20.0;
 
+/// How long an edit sits before it counts as a step of its own, so a burst of
+/// changes to one entry undoes together rather than one change at a time.
+const EDIT_PAUSE: Duration = Duration::from_millis(700);
+
 /// Opens the window on a library, or on an empty session prompting for one.
 pub fn run(path: Option<PathBuf>) -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -254,7 +258,93 @@ impl App {
                     }
                 }
             }
+            ui.separator();
+            let undo = self.session.as_ref().is_some_and(Session::can_undo);
+            let redo = self.session.as_ref().is_some_and(Session::can_redo);
+            if ui
+                .add_enabled(undo, egui::Button::new("Undo"))
+                .on_hover_text("Ctrl+Z")
+                .clicked()
+            {
+                self.undo();
+            }
+            if ui
+                .add_enabled(redo, egui::Button::new("Redo"))
+                .on_hover_text("Ctrl+Shift+Z")
+                .clicked()
+            {
+                self.redo();
+            }
         });
+    }
+
+    /// Ctrl+Z reverses, Ctrl+Shift+Z or Ctrl+Y puts back. The window's history is
+    /// the library's, so the keys work wherever the focus is; a field box never
+    /// holds anything the library has not already been given.
+    fn shortcuts(&mut self, ctx: &egui::Context) {
+        let (undo, redo) = ctx.input(|i| {
+            let undo = i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::Z);
+            let redo = (i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Z))
+                || (i.modifiers.command && i.key_pressed(egui::Key::Y));
+            (undo, redo)
+        });
+        if undo {
+            self.undo();
+        } else if redo {
+            self.redo();
+        }
+    }
+
+    /// Closes a change once the typing has paused, which is what makes a run of
+    /// edits one step and a later visit to the same entry a second.
+    fn settle_edits(&mut self) {
+        if let Some(session) = &mut self.session {
+            session.settle_at(Instant::now(), EDIT_PAUSE);
+        }
+    }
+
+    /// Reverses the last change, and says in the status line what it undid.
+    fn undo(&mut self) {
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        self.draft = None;
+        self.status = match session.undo() {
+            Some(what) => format!("Undid {what}"),
+            None => String::from("Nothing to undo"),
+        };
+        // The row a restore touched may no longer be where the filter looks, and
+        // a search right after an undo has to read the text that is back.
+        self.rematch();
+    }
+
+    /// Puts back what the last undo reversed.
+    fn redo(&mut self) {
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        self.draft = None;
+        self.status = match session.redo() {
+            Some(what) => format!("Redid {what}"),
+            None => String::from("Nothing to redo"),
+        };
+        self.rematch();
+    }
+
+    /// Runs the filter again against whatever the library now holds, so the
+    /// table never shows a row the index no longer matches.
+    fn rematch(&mut self) {
+        let query = self.applied_query.clone();
+        if let Some(session) = &mut self.session {
+            if query.trim().is_empty() {
+                session.clear_search();
+            } else {
+                session.search(&query);
+            }
+            if let Some(sort) = &self.sort {
+                session.sort(sort);
+            }
+        }
     }
 
     fn filter_bar(&mut self, ui: &mut egui::Ui) {
@@ -392,6 +482,8 @@ impl App {
     pub fn draw(&mut self, ctx: &egui::Context) {
         self.poll_pending(ctx);
         self.settle_query(ctx);
+        self.shortcuts(ctx);
+        self.settle_edits();
 
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             self.toolbar(ui);
@@ -416,6 +508,9 @@ impl App {
                     detail::show(ui, self.session.as_mut(), self.selected, &mut self.draft);
                 if outcome == Outcome::Edited {
                     self.status = String::from("Edited, not saved yet");
+                    if let Some(session) = &mut self.session {
+                        session.edited_at(Instant::now());
+                    }
                 }
             });
 
