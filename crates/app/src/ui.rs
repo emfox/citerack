@@ -35,6 +35,7 @@ pub fn run(path: Option<PathBuf>) -> eframe::Result<()> {
             .with_min_inner_size([800.0, 480.0])
             .with_title(name),
         renderer,
+        wgpu_options: wgpu_options(),
         ..Default::default()
     };
     let opened = |cc: &eframe::CreationContext<'_>| {
@@ -48,6 +49,29 @@ pub fn run(path: Option<PathBuf>) -> eframe::Result<()> {
         ),
         other => other,
     }
+}
+
+/// The backends the second renderer may use, which on Windows leaves D3D12 out
+/// where the shader compiler it needs was not found at startup.
+#[cfg(windows)]
+fn wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
+    use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetup};
+
+    let mut options = WgpuConfiguration::default();
+    if let (false, WgpuSetup::CreateNew(setup)) =
+        (crate::windows::shader_compiler(), &mut options.wgpu_setup)
+    {
+        setup
+            .instance_descriptor
+            .backends
+            .remove(wgpu::Backends::DX12);
+    }
+    options
+}
+
+#[cfg(not(windows))]
+fn wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
+    eframe::egui_wgpu::WgpuConfiguration::default()
 }
 
 /// Whether the error says the machine cannot give the window the backend it

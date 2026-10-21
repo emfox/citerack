@@ -98,6 +98,30 @@ CHECKS: tuple[Check, ...] = (
     ),
     Check("build", "rust", (("cargo", "build", "--workspace", "--all-targets"),), needs=("cargo",)),
     Check("test", "rust", (("cargo", "test", "--workspace"),), needs=("cargo",)),
+    # The Windows exe is linked on Linux, so what it binds is decided here. A
+    # build machine that already has the DLL would hide a missing import.
+    Check(
+        "windows-imports",
+        "rust",
+        (
+            (
+                "cargo",
+                "xwin",
+                "build",
+                "--release",
+                "--target",
+                "x86_64-pc-windows-msvc",
+                "-p",
+                "citerack",
+            ),
+            (
+                "bash",
+                "scripts/check_windows_imports.sh",
+                "target/x86_64-pc-windows-msvc/release/citerack.exe",
+            ),
+        ),
+        needs=("cargo", "cargo-xwin", "llvm-objdump"),
+    ),
     # The engine crates are timed by a benchmark that runs headless, so a
     # regression is visible without opening a window.
     Check(
@@ -133,6 +157,14 @@ def precondition(name: str) -> tuple[bool, str]:
     if name == "cargo":
         if shutil.which("cargo") is None:
             return False, "cargo is not on PATH (https://rustup.rs)"
+        return True, ""
+    if name == "cargo-xwin":
+        if shutil.which("cargo-xwin") is None:
+            return False, "cargo-xwin is not on PATH (cargo install cargo-xwin)"
+        return True, ""
+    if name == "llvm-objdump":
+        if shutil.which("llvm-objdump") is None:
+            return False, "llvm-objdump is not on PATH (apt install llvm)"
         return True, ""
     raise ValueError(f"unknown precondition {name!r}")
 

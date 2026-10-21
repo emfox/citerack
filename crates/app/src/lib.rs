@@ -5,5 +5,7 @@
 mod columns;
 mod detail;
 mod ui;
+#[cfg(windows)]
+pub mod windows;
 
 pub use ui::{App, falls_back, run};

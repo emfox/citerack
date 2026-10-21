@@ -21,6 +21,7 @@ Usage:
 ";
 
 fn main() -> ExitCode {
+    prepare_the_process();
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
         Some("--help" | "-h") => {
@@ -234,7 +235,6 @@ fn explain(path: PathBuf, query: &str) -> ExitCode {
 }
 
 fn gui(path: Option<PathBuf>) -> ExitCode {
-    detach_console();
     match citerack::run(path) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
@@ -268,5 +268,14 @@ fn detach_console() {
     }
 }
 
+/// What has to happen before anything else does: no console beside a window, and
+/// the DX12 shader compiler loaded, since its absence would otherwise refuse to
+/// start rather than arrive as a failure the window path can survive.
+#[cfg(windows)]
+fn prepare_the_process() {
+    detach_console();
+    citerack::windows::note_shader_compiler();
+}
+
 #[cfg(not(windows))]
-fn detach_console() {}
+fn prepare_the_process() {}

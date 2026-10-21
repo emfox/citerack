@@ -35,3 +35,31 @@ jobs:
 
       - name: rust
         run: python3 scripts/check_all.py --only rust --require-all --verbose
+
+  # The Windows exe is linked on Linux, so what it binds is decided here rather than
+  # on a machine that would hide a missing import behind the DLL being installed.
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install the cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm
+          cargo install cargo-xwin --locked
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Fetch the Microsoft CRT and SDK
+        run: cargo-xwin cache xwin
+
+      - name: Build
+        run: cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p citerack
+
+      - name: Check the exe binds only libraries Windows ships
+        run: bash scripts/check_windows_imports.sh target/x86_64-pc-windows-msvc/release/citerack.exe

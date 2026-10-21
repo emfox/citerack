@@ -1,6 +1,18 @@
 # The MSVC target links against the Visual C++ runtime by default, which a machine
 # without the redistributable does not have. Static linking leaves only the system
 # libraries, which every Windows has.
+#
+# The DX12 backend compiles its shaders with d3dcompiler_47.dll, which Windows
+# stopped shipping in 10 1803. Delay-loading its imports lets the exe open on a
+# machine that lacks it, and `src/windows.rs` then decides whether DX12 is offered.
+# The DLL is never copied beside the exe, so the loader reads it from System32 only.
 
 [target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]
+rustflags = [
+    "-C",
+    "target-feature=+crt-static",
+    "-C",
+    "link-arg=/DELAYLOAD:d3dcompiler_47.dll",
+    "-C",
+    "link-arg=delayimp.lib",
+]

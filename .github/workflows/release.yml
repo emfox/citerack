@@ -55,10 +55,12 @@ jobs:
 
       # xwin links with lld and reads the headers with clang, so both come from
       # the host rather than from a Visual Studio installation.
+      # llvm-objdump rather than binutils: the import table is checked below, and
+      # only the LLVM reader agrees with what lld wrote.
       - name: Install the cross toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang lld
+          sudo apt-get install -y clang lld llvm
           cargo install cargo-xwin --locked
 
       - uses: Swatinem/rust-cache@v2
@@ -77,21 +79,11 @@ jobs:
           cp target/x86_64-pc-windows-msvc/release/citerack.exe dist/citerack.exe
           cd dist && sha256sum citerack.exe > citerack.exe.sha256
 
-      # The runtime is linked statically by `.cargo/config.toml`. A redistributable
-      # that creeps back in would leave the exe unopenable on a machine that never
-      # had a compiler, so the build fails here rather than there.
-      - name: Check the dependencies are all system libraries
-        run: |
-          borrowed=$(objdump -p dist/citerack.exe |
-            grep -i 'DLL Name' |
-            sed 's/.*DLL Name: //' |
-            grep -iE '^(VCRUNTIME|MSVCP|api-ms-win-crt|ucrtbase|libgcc|libstdc)')
-          if [ -n "$borrowed" ]; then
-            echo "The exe needs a runtime the machine may not have:" >&2
-            echo "$borrowed" >&2
-            exit 1
-          fi
-          objdump -p dist/citerack.exe | grep -i 'DLL Name' | sed 's/.*DLL Name: //' | sort -u
+      # The runtime is linked statically and the shader compiler DX12 needs is
+      # delay-loaded, so neither may appear here. The script is shared with CI,
+      # which runs it on every push rather than only on a tag.
+      - name: Check the exe binds only libraries Windows ships
+        run: bash scripts/check_windows_imports.sh dist/citerack.exe
 
       - uses: actions/upload-artifact@v4
         with:
