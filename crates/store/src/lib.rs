@@ -4,7 +4,9 @@
 
 use std::path::{Path, PathBuf};
 
-use citerack_bib::{Library, ParseError, ParseOptions, WriteOptions, parse_str, write_str};
+use citerack_bib::{
+    EditError, EntryId, Library, ParseError, ParseOptions, WriteOptions, parse_str, write_str,
+};
 use citerack_index::{SearchOptions, SearchResult, Searcher, SortKey, SortSpec};
 
 /// A library open in memory, with its search index ready.
@@ -14,6 +16,8 @@ pub struct Session {
     searcher: Searcher,
     sort_keys: Vec<SortKey>,
     order: Vec<usize>,
+    /// Whether an edit left the index describing the file rather than the screen.
+    stale: bool,
 }
 
 /// What went wrong while opening or saving.
@@ -74,6 +78,7 @@ impl Session {
             searcher,
             sort_keys,
             order,
+            stale: false,
         })
     }
 
@@ -104,6 +109,7 @@ impl Session {
 
     /// Filters to a query, keeping the current sort.
     pub fn search(&mut self, query: &str) -> SearchResult {
+        self.catch_up();
         let matcher = citerack_index::Matcher::new(query);
         let result = self.searcher.search(&matcher, None);
         self.order.clone_from(&result.rows);
@@ -133,6 +139,64 @@ impl Session {
     /// Writes the library back to the path it came from.
     pub fn save(&self) -> Result<(), StoreError> {
         self.save_as(&self.path)
+    }
+
+    /// Whether anything has been edited since the file was opened.
+    pub fn is_edited(&self) -> bool {
+        self.library.is_edited()
+    }
+
+    /// The value of one field, as a save would write it.
+    pub fn value(&self, entry: usize, field: usize) -> Option<&str> {
+        self.library.field(EntryId(entry), field)
+    }
+
+    /// Replaces one field's value. The sort key for that row is refreshed here,
+    /// since it is cheap; the search index is rebuilt before the next query, so a
+    /// long edit session costs one build rather than one per keystroke.
+    pub fn set_field(&mut self, entry: usize, field: usize, value: &str) -> Result<(), EditError> {
+        self.library.set_field(EntryId(entry), field, value)?;
+        self.touched(entry);
+        Ok(())
+    }
+
+    /// Adds a field at the end of an entry.
+    pub fn add_field(&mut self, entry: usize, name: &str, value: &str) -> Result<(), EditError> {
+        self.library.add_field(EntryId(entry), name, value)?;
+        self.touched(entry);
+        Ok(())
+    }
+
+    /// Renames an entry's citation key.
+    pub fn set_key(&mut self, entry: usize, key: &str) -> Result<(), EditError> {
+        self.library.set_key(EntryId(entry), key)?;
+        self.touched(entry);
+        Ok(())
+    }
+
+    /// Puts one entry back the way the file had it.
+    pub fn revert(&mut self, entry: usize) -> Result<(), EditError> {
+        self.library.revert(EntryId(entry))?;
+        self.touched(entry);
+        Ok(())
+    }
+
+    /// Records that one row changed, and whether the index still describes it.
+    fn touched(&mut self, entry: usize) {
+        if let Some(key) = self.sort_keys.get_mut(entry) {
+            *key = SortKey::of(&self.library, entry);
+        }
+        self.stale = true;
+    }
+
+    /// Rebuilds the index if an edit left it behind, which is what keeps a search
+    /// answering from the text on screen rather than the text the file had.
+    fn catch_up(&mut self) {
+        if !self.stale {
+            return;
+        }
+        self.searcher = Searcher::build(&self.library, &SearchOptions::default());
+        self.stale = false;
     }
 
     /// Writes to another path, leaving the original untouched; the default
