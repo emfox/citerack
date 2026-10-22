@@ -66,14 +66,12 @@ which is what a user expects from a single search box. A term may match a
 different field from the term next to it: `zhou 2024` finds the entry whose
 author is Zhou and whose year is 2024 without the user knowing the field names.
 
-### 3.1 What is known to be slow
+### 3.1 What used to be slow
 
-The first query against 100 000 entries takes about 50 ms, because it scans
-`n × fields` cells and folds nothing but matches each one. `docs/Roadmap.md`
-carries the item that replaces the scan with an inverted index over the folded
-columns; until then, a search is fast enough to feel instant on a mid-sized
-library and visibly not instant on a very large one. The number is quoted with
-its input in `docs/Performance.md` rather than stated as a feeling.
+The first query against 100 000 entries used to take about 50 ms, because it
+scanned `n × fields` cells and folded each one. A search is answered from an
+inverted index over the folded columns now, and the same query costs 0.72 ms;
+`docs/Performance.md` §3 has the figures and the command that re-derives them.
 
 ## 4. Why the window is built after the data
 
@@ -111,8 +109,8 @@ selection and the detail pane depend on.
 
 The one thing the front end owns is a pending query. A keystroke does not run a
 search: it records a time, and 120 ms of quiet later the search runs. Without
-that, typing a word runs the engine once per character, and on a large library
-each of those is 50 ms.
+that, typing a word runs the engine once per character, and a query is a query
+however few characters asked for it.
 
 ## 7. Portability
 

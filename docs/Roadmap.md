@@ -6,53 +6,13 @@ into `CHANGELOG.md` in the same commit, in the words a user would use.
 Each row names what a user gains and what would have to be true for the work to
 be called done. A row without a completion test is an aspiration.
 
-## 1. Before a first release
+Two versions have shipped, so there is no "before a first release" list left.
+Anything decided against stays in §2 so the same question is not reopened.
 
-These are the rows that stand between the current tree and a version somebody
-outside this repository could install and use daily.
+## 1. Open
 
-| Item | What a user gains | Done when |
-| --- | --- | --- |
-
-A second renderer came off this list in October 2026 by being done: the process
-opens the window with `glow` and, when the machine refuses it a GL context, asks
-`wgpu` for the same window before it gives up. `CHANGELOG.md` says what a user
-sees.
-
-Duplicate detection came off this list in October 2026 by being done: two entries
-sharing a DOI, or a title and a year, are named with the pair and the reason, and
-the table can be narrowed to them. `docs/Ui-spec.md` §2 and §6 say what a user
-sees and what counts as the same work.
-
-Editing that follows an entry type came off the second list in October 2026 by
-being done: a selected entry is shown with every field its type requires in red,
-an empty box under them for each one the file does not hold, and `missing` beside
-it, while a required field the file holds with nothing in it says `empty`. A box
-written into adds the field; a box left alone leaves the file as it was.
-`docs/Ui-spec.md` §6 and `CHANGELOG.md` say what a user sees.
-
-Generated citation keys came off the second list in October 2026 by being done:
-a toolbar box holds a pattern of `{field}` references, a `Generated` column shows
-the key that pattern makes for every row, and the letter a key takes when another
-entry already holds the plain form is the one a press writes. `docs/Ui-spec.md`
-§5 says what a user sees.
-
-Facets came off the second list in October 2026 by being done: the Groups panel
-offers author, journal, year and type, pressing a value narrows the table, and the
-count beside a value is what pressing it would leave under the search and the
-other lists. `docs/Ui-spec.md` §7 says what a user sees.
-
-Asynchronous saving was on this list and came off it in October 2026, not because it
-was done but because it was measured and the reason for it did not hold: a save
-costs under a millisecond per mebibyte, so the 150 MiB file the row named takes
-about 0.13 s. `docs/Performance.md` §4 has the figures and the command that
-re-derives them. A pause that short does not justify a worker thread, and a file
-that large is rare enough that the miss would not be reported.
-
-## 2. After that
-
-Rows here are ordered by how many users would notice, not by how interesting the
-work is.
+Rows are ordered by how many users would notice, not by how interesting the work
+is.
 
 | Item | What a user gains | Done when |
 | --- | --- | --- |
@@ -60,15 +20,12 @@ work is.
 | UI strings in one catalogue | a window that speaks a language other than English | every word the window shows comes from one file, and a second language file changes the window without a rebuild |
 | External file attachments | opening the PDF from the entry | a field naming a path opens that file, and a missing file is reported beside the field rather than as a dialog |
 | Import from DOI and arXiv | typing an identifier instead of an entry | an identifier produces a complete entry, and a failed lookup leaves the library untouched |
-| Windows build | running on the platform most students have | the same three commands in `README.md` produce a working binary on a Windows runner |
 
-"UI strings in one catalogue" is what `docs/Conventions.md` §1 already promises:
-the strings are inline in `crates/app/src` today and there is no `locales/`
-directory, so that rule describes a target rather than the tree.
+The catalogue row is what a translated window needs, and what the tree does not
+have: the strings are inline in `crates/app/src` and there is no `locales/`
+directory.
 
-## 3. Decided against
-
-Kept as a list so the same question is not reopened every few months.
+## 2. Decided against
 
 | Idea | Why not |
 | --- | --- |
@@ -77,4 +34,4 @@ Kept as a list so the same question is not reopened every few months.
 | Cloud sync | it is a service, with an account, a bill and a privacy policy. A file in a folder the user already syncs is the answer that needs no service |
 | A separate "quick search" and "advanced search" | two boxes to learn instead of one to type into. Field-qualified terms can be added to the one box when a need is demonstrated |
 | Rendering the PDF in the window | a reader has a PDF viewer it already likes. Opening the file hands the job to it |
-| A window in another language | a translated interface is a second thing to keep true, and a user who cannot read the English one is not the reader this release is for. The engine still indexes and matches every script, and every user-facing string is already in one catalogue, so the work can be picked up without touching the engine |
+| A window in another language | a translated interface is a second thing to keep true, and a user who cannot read the English one is not the reader this release is for. The engine still indexes and matches every script, so a translation would touch the interface and nothing below it — which is why it waits behind the catalogue row rather than being refused outright |

@@ -16,32 +16,37 @@ built before the first row is drawn, and the window reports both.
 | | |
 | --- | --- |
 | Reads | BibTeX, including fields it does not model, which survive a save |
+| Edits | any field in place, with `Ctrl+Z` over a run of typing; a field the entry's type needs but the file lacks is named and added |
 | Saves | byte-identically when nothing was edited |
-| Searches | case- and accent-insensitive, over every field, in about 7 ms at 15 000 entries |
+| Searches | case- and accent-insensitive, over every field, in 0.10 ms at 15 000 entries and 0.72 ms at 100 000 for a word; a four-word query over 100 000 costs 4.46 ms |
+| Filters | by author, journal, year and type, with a count that is what the filter would actually leave |
 | Sorts | key, first author, year, title, without re-reading an entry |
+| Names | a duplicate by DOI, or by title and year with case, accents, braces and punctuation folded away |
+| Keys | generated from a pattern such as `{author}{year}`, previewed before the file moves |
 | Shows | a table with key, type, author, title, year and venue, and a detail pane per entry |
 
-Editing, and everything downstream of it, is on the [roadmap](docs/Roadmap.md).
+Everything here is measured, and `docs/Performance.md` has the command that
+re-derives each figure.
+
+Bulk editing, importing from a DOI, attachments and a translated interface are on
+the [roadmap](docs/Roadmap.md).
 
 ## Install
 
 Every tagged release publishes a Linux binary and a Windows one, each with a
 `.sha256` beside it. The newest is
 [`v0.1.1`](https://github.com/emfox/citerack/releases/latest). From a checkout
-instead:
+instead — on Debian or Ubuntu the window stack needs `libxkbcommon-x11-dev` and
+`libfontconfig1-dev` first, and nothing else:
 
 ```bash
-cargo build --release
+cargo build --release -p citerack
 ./target/release/citerack library.bib
 ```
 
 On Windows the build targets MSVC with the runtime linked statically, so the exe
 needs no redistributable. It has no signature, so Windows may ask before running
 it; the checksum is how to tell it apart from anything else with that name.
-
-Linux needs the usual window-development packages: `libxkbcommon-x11-dev` and
-`libfontconfig1-dev` on Debian and Ubuntu. The build has no other system
-dependency.
 
 A window is drawn with OpenGL and, on a machine that will not give it a GL
 context, with Vulkan or DX12 instead, so a broken GL driver is not a reason to
@@ -62,14 +67,19 @@ citerack --open-time library.bib      # parse and index, print the timings
 citerack --search "zhou 2024" library.bib
 ```
 
-`--open-time` and `--search` need no display, which is how the figures in
+The measuring flags need no display, which is how the figures in
 [docs/Performance.md](docs/Performance.md) are produced and how a bug report can
-quote a number that means something.
+quote a number that means something: `--open-time`, `--edit-time`, `--save-time`,
+`--search`, `--explain` and `--index-report`. The last two say where a query spent
+its rows, and where the index spent its memory.
 
 In the window: `Ctrl+O` opens a library, `Ctrl+S` saves it, `Ctrl+F` reaches the
 filter box, and `Ctrl+Z` and `Ctrl+Shift+Z` take back and put back an edit.
 `Up` and `Down` walk the table, `Ctrl+D` reaches the fields of the selected entry,
 and `Tab` walks them. Nothing needs a mouse.
+
+`System`, `Dark` and `Light` at the right end of the toolbar choose the theme; the
+window opens following the desktop.
 
 ## How it is built
 
