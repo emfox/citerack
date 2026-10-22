@@ -133,7 +133,27 @@ PDF would add libraries to a binary whose whole claim is that it links three, an
 a reader already has a viewer they like. The same reasoning is why the roadmap
 refuses to render a PDF in the window.
 
-## 8. Portability
+## 8. Why a batch is one edit, and why its scope lives in the window
+
+A batch writes the same field across a picked range, and the range is a fact about
+the screen: after a filter, row 3 of the table is not entry 3 of the file. So the
+selection is kept in `app` as show-order rows and never reaches the store as an
+index. `Session::set_field_in` takes entry numbers, which is what `order()` maps
+them to.
+
+Writing is per entry through the same `set_field` a single edit uses, so only that
+field's value range is rewritten and every other byte of the entry — spacing,
+field order, brace style — is the byte it was. One `settle()` at the end makes the
+whole batch a single undo step, because a reader who retagged ten entries thinks of
+it as one action. An entry that refuses the value (a bare field cannot hold a
+space) is left untouched and counted, so a batch is never half a value in a way
+the window does not say.
+
+The field name is typed rather than picked from a list. A list would be a schema,
+and the parser deliberately has none: the file may hold any field, so the box
+accepts any name and lets the entry say whether it can hold the value.
+
+## 9. Portability
 
 `eframe` with `glow` and no default features is the smallest window that runs on
 X11, Wayland and the three desktop platforms without a system toolkit of its

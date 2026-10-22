@@ -12,6 +12,9 @@ What a user can do now that they could not before. Each release names the thing;
   read, including Mendeley's `$\backslash$` and a Windows drive.
 - **A missing file is said where it was named.** The row reads `missing` with the
   path that was looked for, and nothing interrupts the window.
+- **One field written across many entries.** `Shift`-click or `Shift`-arrows pick
+  a range, `Ctrl+A` the screen; the pane becomes a box asking for a field and a
+  value, and the batch is a single `Undo`.
 
 ## 0.1.1 - 22 October 2026
 

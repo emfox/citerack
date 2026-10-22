@@ -3,6 +3,7 @@
 //! before the file is read, so a large library never shows a frozen frame.
 
 mod attach;
+mod batch;
 mod columns;
 mod detail;
 mod ui;

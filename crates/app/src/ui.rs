@@ -10,6 +10,7 @@ use egui::{Align, Label, Layout, RichText, Theme, ThemePreference};
 use egui_extras::{Column as TableColumn, TableBuilder};
 
 use crate::attach;
+use crate::batch::{self, Batch};
 use crate::columns::{Column, entry_at};
 use crate::detail::{self, Draft, Outcome};
 
@@ -113,7 +114,11 @@ pub struct App {
     pattern: String,
     /// Whether the next frame should put the caret in the pattern box.
     focus_pattern: bool,
+    /// The row the table has picked, which the detail pane is showing.
     selected: Option<usize>,
+    /// The other end of a range picked with a modifier or a held key, in show
+    /// order. `None` is a single row; `Some(at)` picks every row between the two.
+    reach: Option<usize>,
     sort: Option<SortSpec>,
     columns: Vec<Column>,
     status: String,
@@ -121,6 +126,10 @@ pub struct App {
     table_width: f32,
     /// The field box being typed in, kept between frames so a refusal keeps it.
     draft: Option<Draft>,
+    /// The boxes a batch write is typed into, kept so a refusal keeps them.
+    batch: Batch,
+    /// Why the last batch press wrote to nobody, kept beside the boxes.
+    batch_refusal: Option<String>,
     /// Set by `Ctrl+F`, cleared by the frame that puts the cursor in the filter.
     focus_filter: bool,
     /// A row the table should bring into view on the next frame, which is what a
@@ -161,12 +170,15 @@ impl App {
             pattern: String::from(citerack_bib::DEFAULT_KEY_PATTERN),
             focus_pattern: false,
             selected: None,
+            reach: None,
             sort: None,
             columns: Column::ALL.to_vec(),
             status: String::new(),
             startup: Some(Instant::now()),
             table_width: 700.0,
             draft: None,
+            batch: Batch::default(),
+            batch_refusal: None,
             focus_filter: false,
             scroll_to: None,
             focus_field: None,
@@ -224,7 +236,7 @@ impl App {
                     path.display()
                 );
                 self.session = Some(session);
-                self.selected = None;
+                self.clear_selection();
                 self.query.clear();
                 self.applied_query.clear();
                 self.draft = None;
@@ -265,7 +277,7 @@ impl App {
                 elapsed
             )
         };
-        self.selected = None;
+        self.clear_selection();
     }
 
     /// Applies a sort, keeping the current filter.
@@ -276,7 +288,7 @@ impl App {
             session.sort(&spec);
         }
         self.sort = Some(spec);
-        self.selected = None;
+        self.clear_selection();
     }
 
     /// Selects a row of the current order, as a click on the table would.
@@ -285,6 +297,63 @@ impl App {
             self.draft = None;
         }
         self.selected = row;
+    }
+
+    /// Drops the selection and the range with it.
+    fn clear_selection(&mut self) {
+        self.selected = None;
+        self.reach = None;
+    }
+
+    /// Picks a row as a click does: one row, and the range let go.
+    fn click_row(&mut self, row: usize) {
+        if self.selected != Some(row) {
+            self.draft = None;
+        }
+        self.selected = Some(row);
+        self.reach = None;
+    }
+
+    /// Adds every row between the selection and `row`, as `Shift` and a click do.
+    /// The anchor stays where it was, so dragging the end walks the range out and
+    /// back rather than growing it one row at a time.
+    fn extend_to(&mut self, row: usize) {
+        self.reach = (self.selected != Some(row)).then_some(row);
+    }
+
+    /// The rows the table is showing as picked, in show order.
+    pub fn picked(&self) -> Vec<usize> {
+        let Some(from) = self.selected else {
+            return Vec::new();
+        };
+        let Some(to) = self.reach else {
+            return vec![from];
+        };
+        let (low, high) = if from <= to { (from, to) } else { (to, from) };
+        (low..=high).collect()
+    }
+
+    /// Lets the pick go back to one row, as a press with no modifier does.
+    pub fn clear_pick(&mut self) {
+        self.reach = None;
+    }
+
+    /// Fills the batch boxes, which is what a user typing in them does, so a test
+    /// can reach the press without a pointer.
+    pub fn type_batch(&mut self, name: &str, value: &str) {
+        self.batch.name = name.to_owned();
+        self.batch.value = value.to_owned();
+        self.batch_refusal = None;
+    }
+
+    /// The field and value in the batch boxes, as they stand.
+    pub fn batch(&self) -> (&str, &str) {
+        (&self.batch.name, &self.batch.value)
+    }
+
+    /// Whether more than one row is picked, which is what the batch box acts on.
+    pub fn picking_many(&self) -> bool {
+        self.picked().len() > 1
     }
 
     /// Puts the caret in the key pattern box, the way a click there does, so a
@@ -545,7 +614,7 @@ impl App {
             session.show_only_duplicates(!showing);
             // The rows the table shows just changed under it, so a selection made
             // in the old list no longer points at what the user was looking at.
-            self.selected = None;
+            self.clear_selection();
             self.draft = None;
             self.status = if showing {
                 String::from("Showing every entry")
@@ -559,21 +628,82 @@ impl App {
     /// Moves the selection by `step` rows, clamped to the table. From nothing
     /// selected, a down press takes the first row and an up press the last, so
     /// either key does something wherever the user is.
-    fn move_selection(&mut self, step: isize) {
+    fn move_selection(&mut self, step: isize, extend: bool) {
         let rows = self.session.as_ref().map_or(0, |s| s.order().len());
         if rows == 0 {
             return;
         }
-        let next = match self.selected {
+        // A held `Shift` moves the far end of the range rather than the anchor, so
+        // a range is walked out one row per press from a single starting point.
+        let from = if extend || self.reach.is_some() {
+            self.reach.or(self.selected)
+        } else {
+            self.selected
+        };
+        let next = match from {
             Some(at) => (at as isize + step).clamp(0, rows as isize - 1) as usize,
             None if step > 0 => 0,
             None => rows - 1,
         };
-        if self.selected != Some(next) {
+        if self.selected.is_none() || (!extend && self.selected != Some(next)) {
             self.draft = None;
         }
-        self.selected = Some(next);
+        if self.selected.is_none() {
+            self.selected = Some(next);
+        } else if extend {
+            self.extend_to(next);
+        } else {
+            self.selected = Some(next);
+            self.reach = None;
+        }
         self.scroll_to = Some(next);
+    }
+
+    /// Draws the batch box in the pane's place while several rows are picked.
+    fn detail_off(&mut self, ui: &mut egui::Ui) {
+        let rows = self.picked();
+        let outcome = batch::show(
+            ui,
+            &mut self.session,
+            &rows,
+            &mut self.batch,
+            &mut self.batch_refusal,
+        );
+        let batch::Outcome::Wrote { written, refused } = outcome else {
+            // A press that wrote to nobody left its reason in the box above the
+            // button; the status line says it too, since that is where a user
+            // looks after a press that seemed to do nothing.
+            if let Some(why) = &self.batch_refusal {
+                self.status = why.clone();
+            }
+            return;
+        };
+        let noun = if written == 1 { "entry" } else { "entries" };
+        self.status = if refused == 0 {
+            format!("Wrote {} to {written} {noun}", self.batch.name.trim())
+        } else {
+            format!(
+                "Wrote {} to {written} {noun}; {refused} could not take it",
+                self.batch.name.trim()
+            )
+        };
+        self.batch_refusal = None;
+        // The batch is a change like any other, so the save dot is set and the
+        // pause before an undo step begins now.
+        if let Some(session) = &mut self.session {
+            session.edited_at(Instant::now());
+        }
+    }
+
+    /// Picks every row the table is showing, which is what a batch on the whole
+    /// result of a search is done from.
+    fn select_all(&mut self) {
+        let rows = self.session.as_ref().map_or(0, |s| s.order().len());
+        if rows == 0 {
+            return;
+        }
+        self.selected = Some(0);
+        self.reach = Some(rows - 1);
     }
 
     /// The key bindings, in one place so `docs/Ui-spec.md` has one thing to
@@ -586,7 +716,8 @@ impl App {
         let typing = ctx.wants_keyboard_input();
         let in_field = self.focused_field.is_some();
         self.shift_tab = ctx.input(|i| i.modifiers.shift);
-        let (open, save, find, fields, undo, redo, down, up, tab, escape) = ctx.input(|i| {
+        let shift = ctx.input(|i| i.modifiers.shift);
+        let (open, save, find, fields, undo, redo, down, up, tab, escape, all) = ctx.input(|i| {
             let command = i.modifiers.command;
             let plain = command && !i.modifiers.shift;
             let undo = plain && i.key_pressed(egui::Key::Z);
@@ -606,6 +737,9 @@ impl App {
                 // left to egui, which moves through the toolbar and the facets.
                 in_field && i.key_pressed(egui::Key::Tab),
                 in_field && i.key_pressed(egui::Key::Escape),
+                // Only when no box holds the cursor, where it means "select all
+                // the text" and is left to egui.
+                !typing && plain && i.key_pressed(egui::Key::A),
             )
         });
         if open {
@@ -626,9 +760,12 @@ impl App {
             self.redo();
         }
         if down {
-            self.move_selection(1);
+            self.move_selection(1, shift);
         } else if up {
-            self.move_selection(-1);
+            self.move_selection(-1, shift);
+        }
+        if all {
+            self.select_all();
         }
         if tab {
             self.step_field();
@@ -847,7 +984,7 @@ impl App {
     /// Called when a facet changed, since the rows behind the selection are not
     /// the ones the user was looking at any more.
     fn after_narrowing(&mut self) {
-        self.selected = None;
+        self.clear_selection();
         self.draft = None;
         let shown = self.session.as_ref().map_or(0, |s| s.order().len());
         let narrowing = self.session.as_ref().map_or(0, |s| s.facet_count());
@@ -873,9 +1010,12 @@ impl App {
     fn table(&mut self, ui: &mut egui::Ui) {
         let widths = self.column_sizes();
         let rows = self.session.as_ref().map_or(0, |s| s.order().len());
-        let selected = self.selected;
+        let picked = self.picked();
         let session = self.session.as_ref();
         let mut clicked = None;
+        // A click that holds `Shift` walks the range out to the row it landed on
+        // rather than replacing the pick, which is one gesture for many rows.
+        let mut extended = None;
         // The key a double click writes, which is the one the Generated column
         // already shows for that row.
         let mut rename = None;
@@ -904,7 +1044,7 @@ impl App {
             .body(|body| {
                 body.rows(ROW_HEIGHT, rows, |mut row| {
                     let index = row.index();
-                    row.set_selected(selected == Some(index));
+                    row.set_selected(picked.contains(&index));
                     let entry = entry_at(session, index);
                     for column in &self.columns {
                         row.col(|ui| {
@@ -925,7 +1065,11 @@ impl App {
                     }
                     let response = row.response();
                     if response.clicked() {
-                        clicked = Some(index);
+                        if response.ctx.input(|i| i.modifiers.shift) {
+                            extended = Some(index);
+                        } else {
+                            clicked = Some(index);
+                        }
                     }
                     // A second click on a row gives its entry the key the next
                     // column shows, which is one gesture for one entry.
@@ -936,10 +1080,9 @@ impl App {
             });
 
         if let Some(index) = clicked {
-            if self.selected != Some(index) {
-                self.draft = None;
-            }
-            self.selected = Some(index);
+            self.click_row(index);
+        } else if let Some(index) = extended {
+            self.extend_to(index);
         }
         if let Some(index) = rename {
             self.generate_key(index);
@@ -1001,6 +1144,10 @@ impl App {
             .resizable(true)
             .default_width(340.0)
             .show(ctx, |ui| {
+                if self.picking_many() {
+                    self.detail_off(ui);
+                    return;
+                }
                 let outcome = detail::show(
                     ui,
                     self.session.as_mut(),
@@ -1008,6 +1155,7 @@ impl App {
                     &mut self.draft,
                     &mut self.focus_field,
                     &mut self.focused_field,
+                    true,
                 );
                 match outcome {
                     Outcome::Edited => {

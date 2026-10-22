@@ -1290,3 +1290,141 @@ fn a_file_that_is_not_there_is_said_beside_the_field() {
     assert_eq!(harness.state().status(), "1 entries");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Three entries to pick from, in key order so a range has a known middle.
+const THREE: &str = "\
+@Article{alpha2020,
+  Author = {Alpha, Ann},
+  Title  = {First},
+  Year   = 2020,
+}
+
+@Article{beta2021,
+  Author = {Beta, Bob},
+  Title  = {Second},
+  Year   = 2021,
+}
+
+@Article{gamma2022,
+  Author = {Gamma, Gil},
+  Title  = {Third},
+  Year   = 2022,
+}
+";
+
+fn three() -> Harness<'static, App> {
+    let session = Session::from_text(
+        PathBuf::from("three.bib"),
+        THREE,
+        &citerack_bib::ParseOptions { recover: true },
+    )
+    .expect("the input parses");
+    let mut harness = harness(App::with_session(session));
+    harness.state_mut().select(Some(0));
+    harness.run();
+    harness
+}
+
+/// Holds `Shift` for one arrow press, which walks the range out by a row.
+fn shift_arrow(harness: &mut Harness<'_, App>, key: egui::Key) {
+    harness.key_press_modifiers(egui::Modifiers::SHIFT, key);
+    harness.run();
+}
+
+#[test]
+fn shift_and_down_picks_the_rows_between() {
+    let mut harness = three();
+    shift_arrow(&mut harness, egui::Key::ArrowDown);
+    assert_eq!(harness.state().picked(), vec![0, 1]);
+    shift_arrow(&mut harness, egui::Key::ArrowDown);
+    assert_eq!(
+        harness.state().picked(),
+        vec![0, 1, 2],
+        "the anchor stays put"
+    );
+    // The pane has made way for the batch box, which says how many are picked.
+    harness.get_by_label("3 entries picked");
+    assert!(
+        harness.query_all_by_label("A Study").count() == 0,
+        "the fields of one entry are not what a batch is for"
+    );
+}
+
+#[test]
+fn picking_many_writes_one_field_across_them_and_one_undo_takes_it_back() {
+    let mut harness = three();
+    harness.state_mut().select(Some(0));
+    harness.run();
+    shift_arrow(&mut harness, egui::Key::ArrowDown);
+    shift_arrow(&mut harness, egui::Key::ArrowDown);
+
+    // The boxes are filled through the window rather than by typing at a hint
+    // text, which is what the boxes show before anything is in them. The press is
+    // the button's own, as a click on it would be.
+    harness.state_mut().type_batch("keywords", "reviewed");
+    harness.run();
+    harness.get_by_label("Write to all").click();
+    harness.run();
+
+    assert_eq!(harness.state().status(), "Wrote keywords to 3 entries");
+    let session = harness.state().session().unwrap();
+    assert!(session.is_edited());
+    for row in 0..3 {
+        assert!(
+            session.value(row, 3).is_some(),
+            "every picked entry gained the field"
+        );
+    }
+
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run();
+    let session = harness.state().session().unwrap();
+    assert!(!session.is_edited(), "one undo took all three");
+}
+
+#[test]
+fn ctrl_a_picks_every_row_on_screen_and_a_click_lets_it_go() {
+    let mut harness = three();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    harness.run();
+    assert_eq!(harness.state().picked(), vec![0, 1, 2]);
+
+    // A plain click on a row is a fresh pick, not a wider one. `click_row` is what
+    // the table calls; `select` moves the anchor and leaves the range it had.
+    harness.state_mut().clear_pick();
+    harness.state_mut().select(Some(1));
+    harness.run();
+    assert_eq!(harness.state().picked(), vec![1]);
+}
+
+#[test]
+fn entering_a_batch_that_nobody_takes_says_why_and_keeps_the_typing() {
+    let mut harness = three();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    harness.run();
+    // A name a field cannot hold is refused before a byte is written.
+    harness.state_mut().type_batch("bad name", "x");
+    harness.run();
+    harness.get_by_label("Write to all").click();
+    harness.run();
+
+    assert_eq!(
+        harness.state().batch(),
+        ("bad name", "x"),
+        "the typing stays"
+    );
+    assert!(
+        harness.state().status().contains("no entry took it"),
+        "a refusal is reported rather than swallowed: {}",
+        harness.state().status()
+    );
+    // The sentence is on screen as well as in the style sheet, so it is found twice.
+    assert!(
+        harness
+            .query_all_by_label("no entry took it: bad name is not a name a field can hold")
+            .count()
+            > 0,
+        "the refusal is shown, not only kept in the status line"
+    );
+    assert!(!harness.state().session().unwrap().is_edited());
+}

@@ -104,6 +104,7 @@ pub fn show(
     draft: &mut Option<Draft>,
     focus: &mut Option<usize>,
     focused: &mut Option<usize>,
+    show_files: bool,
 ) -> Outcome {
     let asked_for = focus.take();
     *focused = None;
@@ -242,7 +243,11 @@ pub fn show(
                 // Below the box, at the depth of the value, the files it names.
                 // The paths are checked once per frame that draws them: a file
                 // opened or deleted outside the window is noticed within one.
-                let files = files_of(each);
+                let files = if show_files {
+                    files_of(each)
+                } else {
+                    Vec::new()
+                };
                 if !files.is_empty() {
                     let checked: Vec<(Attachment, Found)> = attach::resolve(&library, &files)
                         .into_iter()

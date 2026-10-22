@@ -16,7 +16,6 @@ is.
 
 | Item | What a user gains | Done when |
 | --- | --- | --- |
-| Bulk operations | retagging or renaming in one step | a multi-row selection can be edited, and the file is still byte-identical outside the edited fields |
 | UI strings in one catalogue | a window that speaks a language other than English | every word the window shows comes from one file, and a second language file changes the window without a rebuild |
 | Import from DOI and arXiv | typing an identifier instead of an entry | an identifier produces a complete entry, and a failed lookup leaves the library untouched |
 

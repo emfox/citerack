@@ -545,6 +545,37 @@ impl Session {
         Ok(())
     }
 
+    /// Writes one field across several entries, returning how many changed and how
+    /// many were refused. The whole batch is one undo step; a field the entry does
+    /// not hold is added, and an entry that refuses the value is left as it was.
+    pub fn set_field_in(&mut self, entries: &[usize], name: &str, value: &str) -> (usize, usize) {
+        let (mut written, mut refused) = (0, 0);
+        for &entry in entries {
+            let done = match self.field_index(entry, name) {
+                Some(field) => self.set_field(entry, field, value),
+                None => self.add_field(entry, name, value),
+            };
+            match done {
+                Ok(()) => written += 1,
+                Err(_) => refused += 1,
+            }
+        }
+        if written > 0 {
+            self.settle();
+        }
+        (written, refused)
+    }
+
+    /// Where a field sits in an entry, compared as BibTeX compares names.
+    fn field_index(&self, entry: usize, name: &str) -> Option<usize> {
+        self.library
+            .entries()
+            .get(entry)?
+            .fields
+            .iter()
+            .position(|field| field.name.as_str().eq_ignore_ascii_case(name))
+    }
+
     /// The pattern a generated key follows.
     pub fn key_pattern(&self) -> String {
         self.key_pattern.as_str()
