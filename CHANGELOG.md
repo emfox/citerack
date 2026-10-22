@@ -18,6 +18,9 @@ What a user can do now that they could not before. Each release names the thing;
 - **An entry from a DOI or an arXiv id.** `Import` takes the id or the link it is
   shown at, shows what came back, and files it under a key no entry holds yet. A
   lookup that fails says why and leaves the library as it was.
+- **Every word the window shows comes from one file.** `crates/app/src/catalogue.rs`
+  is the whole interface vocabulary, and a check fails on a sentence written at the
+  widget that draws it. The words are still English; a translation is now one file.
 
 ## 0.1.1 - 22 October 2026
 

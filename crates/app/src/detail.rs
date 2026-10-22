@@ -3,6 +3,7 @@
 //! missing. A value is committed when its box loses focus.
 
 use crate::attach::{self, Found};
+use crate::text;
 use citerack_bib::{Attachment, Entry, EntryKind, is_required, parse_file_field, wanted};
 use citerack_store::Session;
 use egui::{Color32, RichText, TextEdit, Ui};
@@ -79,10 +80,10 @@ impl Row {
     }
 
     /// The word beside the box when the row says why it is there.
-    fn marker(&self) -> Option<&'static str> {
+    fn marker(&self) -> Option<String> {
         match (self.field, self.required, self.value.trim().is_empty()) {
-            (None, _, _) => Some("missing"),
-            (Some(_), true, true) => Some("empty"),
+            (None, _, _) => Some(text!(FieldMissing)),
+            (Some(_), true, true) => Some(text!(FieldEmpty)),
             _ => None,
         }
     }
@@ -109,12 +110,12 @@ pub fn show(
     let asked_for = focus.take();
     *focused = None;
     let (Some(session), Some(row)) = (session, row) else {
-        ui.weak("Select an entry to see its fields.");
+        ui.weak(text!(SelectAnEntry));
         return Outcome::Idle;
     };
     let library = session.path().to_path_buf();
     let Some(entry) = session.library().entries().get(row) else {
-        ui.weak("Select an entry to see its fields.");
+        ui.weak(text!(SelectAnEntry));
         return Outcome::Idle;
     };
     // Everything the pane needs is read out of the library before the duplicate
@@ -137,16 +138,17 @@ pub fn show(
     for (key, reason) in session.duplicates_of(row) {
         ui.colored_label(
             egui::Color32::from_rgb(214, 168, 92),
-            format!("Also entered as {key}: {reason}"),
+            text!(AlsoEnteredAs, key: key, reason: reason),
         );
     }
     // What the type asks for, said once above the fields rather than repeated on
     // every row, so a red row can answer "which of them does this one lack".
     if short > 0 && !asked.is_empty() {
         let list = asked.join(", ");
-        ui.weak(format!(
-            "This {} wants {list}.",
-            heading.0.to_ascii_lowercase()
+        ui.weak(text!(
+            Wants,
+            kind: heading.0.to_ascii_lowercase(),
+            fields: list
         ));
     }
     ui.separator();
@@ -329,7 +331,7 @@ fn draw_files(ui: &mut Ui, files: &[(Attachment, Found)], indent: f32, outcome: 
                 // The path wraps rather than being cut off: a folder a reader
                 // cannot read to the end is not a place they can go and look.
                 Found::Missing(path) => {
-                    ui.colored_label(MISSING, "missing");
+                    ui.colored_label(MISSING, text!(FileMissing));
                     ui.weak(path.display().to_string());
                 }
             }

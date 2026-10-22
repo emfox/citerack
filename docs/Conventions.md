@@ -21,11 +21,17 @@ The interface is English only, and so is the path for contributing. That is a
 decision about scope, not a claim that another language is less supported: a
 library in any script opens, searches and saves as well as an English one.
 
-User-facing strings shown in the window live in `locales/en/main.ftl` and are
-never inlined into Rust. The engine crates produce an error *kind* plus
-parameters, never a sentence. A catalogue in another language would be a
-directory beside that one, and nothing in the engine would have to change to add
-it.
+User-facing strings shown in the window live in `crates/app/src/catalogue.rs` and
+are never written where the widget draws them. `scripts/check_catalogue.py` fails
+on a sentence handed to a label, a button or the status line, so a word that skips
+the catalogue is caught rather than remembered. A second language would be another
+`impl` of the same keys, chosen at run time; nothing below the window would move,
+which is the whole reason the keys are a Rust type rather than a file the binary
+loads.
+
+The engine crates produce an error *kind* plus parameters, never a sentence: what a
+reader sees is assembled from the catalogue, so a translation rewords an error
+without touching the code that detects it.
 
 ## 2. Comments
 

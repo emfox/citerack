@@ -14,13 +14,13 @@ Anything decided against stays in §2 so the same question is not reopened.
 Rows are ordered by how many users would notice, not by how interesting the work
 is.
 
-| Item | What a user gains | Done when |
-| --- | --- | --- |
-| UI strings in one catalogue | a window that speaks a language other than English | every word the window shows comes from one file, and a second language file changes the window without a rebuild |
+Nothing is open. The three rows the roadmap held are shipped: attachments, bulk
+edits, and an import from an identifier, each in the version it was written for.
 
-The catalogue row is what a translated window needs, and what the tree does not
-have: the strings are inline in `crates/app/src` and there is no `locales/`
-directory.
+The one thing a translator would still need is a second `impl` of the keys in
+`crates/app/src/catalogue.rs` and a setting that chose it. That is deliberately not
+a row: nobody has asked for a language, and the roadmap does not hold work whose
+only justification is that it would be possible.
 
 ## 2. Decided against
 

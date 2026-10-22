@@ -2,6 +2,7 @@
 //! is linked. A path is resolved first, and a miss is a value for the pane to
 //! write beside the field rather than a dialog over the window.
 
+use crate::text;
 use std::path::{Path, PathBuf};
 
 use citerack_bib::Attachment;
@@ -51,7 +52,7 @@ pub fn open(path: &Path) -> Result<(), String> {
             let _ = child.try_wait();
             Ok(())
         }
-        Err(err) => Err(format!("no program on this system opens files: {err}")),
+        Err(why) => Err(text!(OpenFailed, why: why)),
     }
 }
 

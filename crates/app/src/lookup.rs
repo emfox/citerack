@@ -5,6 +5,7 @@
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::thread;
 
+use crate::text;
 use citerack_bib::Entry;
 use citerack_index::{Found, Identifier, first_surname, from_arxiv, from_crossref, keyed};
 use serde_json::Value;
@@ -67,7 +68,7 @@ impl Lookup {
             Err(TryRecvError::Empty) => None,
             Err(TryRecvError::Disconnected) => {
                 self.pending = None;
-                Some(Err(String::from("the lookup stopped without an answer")))
+                Some(Err(text!(LookupStopped)))
             }
         }
     }
@@ -125,7 +126,7 @@ fn arxiv(id: &str) -> Result<Entry, String> {
     let url = format!("https://export.arxiv.org/api/query?id_list={id}");
     let body = get(&url)?;
     if body.contains("<opensearch:totalResults>0<") {
-        return Err(format!("arXiv has no paper {id}"));
+        return Err(text!(ArxivHasNo, id: id));
     }
     from_arxiv(id, &body).map_err(|why| format!("arXiv: {why}"))
 }
@@ -142,15 +143,15 @@ fn get(url: &str) -> Result<String, String> {
         Ok(mut response) => response
             .body_mut()
             .read_to_string()
-            .map_err(|why| format!("the answer could not be read: {why}")),
-        Err(ureq::Error::StatusCode(404)) => Err(String::from("no such record")),
-        Err(ureq::Error::Timeout(_)) => Err(String::from("the service did not answer in time")),
-        Err(why) => Err(format!("the lookup failed: {why}")),
+            .map_err(|why| text!(LookupUnreadable, why: why)),
+        Err(ureq::Error::StatusCode(404)) => Err(text!(LookupNoRecord)),
+        Err(ureq::Error::Timeout(_)) => Err(text!(LookupTimeout)),
+        Err(why) => Err(text!(LookupFailed, why: why)),
     }
 }
 
 fn timed_out_or(service: &str) -> String {
-    format!("{service} sent something that is not a record")
+    text!(LookupNotARecord, service: service)
 }
 
 #[cfg(test)]

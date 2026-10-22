@@ -2,6 +2,7 @@
 //! while more than a row is picked. The field name is typed rather than chosen:
 //! a list of the names a library can hold would be a schema it does not have.
 
+use crate::text;
 use citerack_store::Session;
 use egui::{Color32, RichText, TextEdit, Ui};
 
@@ -44,8 +45,8 @@ pub fn show(
     refusal: &mut Option<String>,
 ) -> Outcome {
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(format!("{} entries picked", rows.len())).strong());
-        ui.weak("· Shift-click or Shift-↑↓ to add, Ctrl+A for all");
+        ui.label(RichText::new(text!(EntriesPicked, count: rows.len())).strong());
+        ui.weak(text!(PickedHint));
     });
     let Some(session) = session.as_mut() else {
         return Outcome::Idle;
@@ -60,19 +61,19 @@ pub fn show(
     ui.separator();
     let mut pressed = false;
     ui.horizontal(|ui| {
-        ui.label(RichText::new("field").weak());
+        ui.label(RichText::new(text!(Field)).weak());
         ui.add(
             TextEdit::singleline(&mut batch.name)
-                .hint_text("keywords")
+                .hint_text(text!(FieldHint))
                 .desired_width(140.0)
                 .id_salt("batch_name"),
         );
     });
     ui.horizontal(|ui| {
-        ui.label(RichText::new("value").weak());
+        ui.label(RichText::new(text!(Value)).weak());
         let response = ui.add(
             TextEdit::singleline(&mut batch.value)
-                .hint_text("the text to write in all of them")
+                .hint_text(text!(ValueHint))
                 .desired_width(ui.available_width() - 90.0)
                 .id_salt("batch_value"),
         );
@@ -84,7 +85,7 @@ pub fn show(
         pressed |= ui
             .add_enabled(
                 !batch.name.trim().is_empty(),
-                egui::Button::new("Write to all"),
+                egui::Button::new(text!(WriteToAll)),
             )
             .clicked();
     });
@@ -105,12 +106,9 @@ pub fn show(
         // Said here as well as in the status line: the reason stays beside the
         // boxes that caused it, where the next thing typed will be.
         *refusal = Some(if refused > 0 {
-            format!(
-                "no entry took it: {} is not a name a field can hold",
-                batch.name.trim()
-            )
+            text!(NoEntryTookName, name: batch.name.trim())
         } else {
-            format!("no entry took the value for {}", batch.name.trim())
+            text!(NoEntryTookValue, name: batch.name.trim())
         });
         return Outcome::Idle;
     }
@@ -137,18 +135,21 @@ fn values_of(session: &Session, rows: &[usize], name: &str) -> String {
             None => absent += 1,
         }
     }
-    let noun = if seen.len() == 1 && seen[0].is_empty() {
-        String::from("1 value")
+    let values = if seen.len() == 1 && seen[0].is_empty() {
+        text!(OneValue)
     } else {
-        format!("{} values", seen.len())
+        text!(Values, count: seen.len())
     };
     match (seen.len(), absent) {
-        (0, _) => format!("none of them has {name} yet"),
-        (1, 0) => format!("all of them say {}", seen[0]),
-        (_, 0) => format!("they say {noun} between them: {}", list(&seen)),
-        (_, missing) => format!(
-            "{noun}, and {missing} have no {name} at all: {}",
-            list(&seen)
+        (0, _) => text!(NoneHasIt, name: name),
+        (1, 0) => text!(AllSay, value: seen[0]),
+        (_, 0) => text!(TheySay, values: values, list: list(&seen)),
+        (_, missing) => text!(
+            TheySaySomeMissing,
+            values: values,
+            missing: missing,
+            name: name,
+            list: list(&seen)
         ),
     }
 }
@@ -161,7 +162,11 @@ fn list(values: &[&str]) -> String {
         .map(|value| format!("\"{value}\""))
         .collect();
     if values.len() > 3 {
-        format!("{} and {} more", shown.join(", "), values.len() - 3)
+        text!(
+            ListMore,
+            shown: shown.join(", "),
+            count: values.len() - 3
+        )
     } else {
         shown.join(", ")
     }

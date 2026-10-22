@@ -11,10 +11,12 @@ use egui_extras::{Column as TableColumn, TableBuilder};
 
 use crate::attach;
 use crate::batch::{self, Batch};
+use crate::catalogue::{Text, fill};
 use crate::columns::{Column, entry_at};
 use crate::detail::{self, Draft, Outcome};
 use crate::import;
 use crate::lookup::{Lookup, State};
+use crate::text;
 
 /// How long a keystroke waits before the search runs, so a typed word costs one
 /// query rather than one per character.
@@ -203,7 +205,7 @@ impl App {
     /// Opens an already-read session, skipping the worker a real open uses.
     pub fn with_session(session: Session) -> Self {
         let mut app = Self::empty();
-        app.status = format!("{} entries", session.len());
+        app.status = text!(Entries, count: session.len());
         app.pattern = session.key_pattern();
         app.session = Some(session);
         app
@@ -279,13 +281,13 @@ impl App {
             session.sort(&spec);
         }
         self.status = if self.applied_query.trim().is_empty() {
-            format!("{} entries", session.len())
+            text!(Entries, count: session.len())
         } else {
-            format!(
-                "Found {} results  |  shown {}  |  {:.3} s",
-                result.total,
-                result.rows.len(),
-                elapsed
+            text!(
+                FoundResults,
+                total: result.total,
+                shown: result.rows.len(),
+                seconds: elapsed
             )
         };
         self.clear_selection();
@@ -431,23 +433,27 @@ impl App {
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if ui.button("Open").on_hover_text("Ctrl+O").clicked() {
+            if ui
+                .button(text!(Open))
+                .on_hover_text(text!(ShortcutOpen))
+                .clicked()
+            {
                 self.ask_for_file();
             }
             if ui
-                .add_enabled(self.session.is_some(), egui::Button::new("Import"))
-                .on_hover_text("an entry from a DOI or an arXiv id")
+                .add_enabled(self.session.is_some(), egui::Button::new(text!(Import)))
+                .on_hover_text(text!(ImportTooltip))
                 .clicked()
             {
                 self.importing = true;
             }
             ui.separator();
-            ui.label("Sort");
+            ui.label(text!(Sort));
             for (label, field) in [
-                ("Key", SortField::Key),
-                ("Author", SortField::FirstAuthor),
-                ("Year", SortField::Year),
-                ("Title", SortField::Title),
+                (Text::SortKey, SortField::Key),
+                (Text::SortAuthor, SortField::FirstAuthor),
+                (Text::SortYear, SortField::Year),
+                (Text::SortTitle, SortField::Title),
             ] {
                 let active = matches!(&self.sort, Some(s) if s.field == field);
                 let arrow = match (&self.sort, active) {
@@ -455,19 +461,21 @@ impl App {
                     (Some(_), true) => " ^",
                     _ => "",
                 };
-                if ui
-                    .selectable_label(active, format!("{label}{arrow}"))
-                    .clicked()
-                {
+                let words = format!("{}{arrow}", fill(label, &[]));
+                if ui.selectable_label(active, words).clicked() {
                     self.apply_sort(field);
                 }
             }
             ui.separator();
             let unsaved = self.session.as_ref().is_some_and(Session::is_edited);
-            let label = if unsaved { "Save *" } else { "Save" };
+            let label = if unsaved {
+                Text::SaveUnsaved
+            } else {
+                Text::Save
+            };
             if ui
-                .add_enabled(self.session.is_some(), egui::Button::new(label))
-                .on_hover_text("Ctrl+S")
+                .add_enabled(self.session.is_some(), egui::Button::new(fill(label, &[])))
+                .on_hover_text(text!(ShortcutSave))
                 .clicked()
             {
                 self.save();
@@ -476,15 +484,15 @@ impl App {
             let undo = self.session.as_ref().is_some_and(Session::can_undo);
             let redo = self.session.as_ref().is_some_and(Session::can_redo);
             if ui
-                .add_enabled(undo, egui::Button::new("Undo"))
-                .on_hover_text("Ctrl+Z")
+                .add_enabled(undo, egui::Button::new(text!(Undo)))
+                .on_hover_text(text!(ShortcutUndo))
                 .clicked()
             {
                 self.undo();
             }
             if ui
-                .add_enabled(redo, egui::Button::new("Redo"))
-                .on_hover_text("Ctrl+Shift+Z")
+                .add_enabled(redo, egui::Button::new(text!(Redo)))
+                .on_hover_text(text!(ShortcutRedo))
                 .clicked()
             {
                 self.redo();
@@ -503,17 +511,20 @@ impl App {
     fn theme_switch(&mut self, ui: &mut egui::Ui) {
         let system = ui.ctx().system_theme();
         let here = match system {
-            Some(Theme::Dark) => "System (dark)",
-            Some(Theme::Light) => "System (light)",
-            None => "System",
+            Some(Theme::Dark) => Text::SystemDark,
+            Some(Theme::Light) => Text::SystemLight,
+            None => Text::System,
         };
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             for (theme, label) in [
-                (ThemePreference::Light, "Light"),
-                (ThemePreference::Dark, "Dark"),
+                (ThemePreference::Light, Text::Light),
+                (ThemePreference::Dark, Text::Dark),
                 (ThemePreference::System, here),
             ] {
-                if ui.selectable_label(self.theme == theme, label).clicked() {
+                if ui
+                    .selectable_label(self.theme == theme, fill(label, &[]))
+                    .clicked()
+                {
                     self.theme = theme;
                 }
             }
@@ -527,7 +538,7 @@ impl App {
         let Some(session) = &mut self.session else {
             return;
         };
-        ui.label("Key");
+        ui.label(text!(Key));
         // The box keeps its own text, so a pattern the parser has not been given
         // yet is still on screen to be finished. A pattern only reaches the
         // session once it reads, which is why a refusal has to be drawn beside it.
@@ -538,7 +549,7 @@ impl App {
                     .id_salt(PATTERN_ID)
                     .hint_text(citerack_bib::DEFAULT_KEY_PATTERN),
             )
-            .on_hover_text("the fields a generated key is made of, as {author}{year}");
+            .on_hover_text(text!(PatternTooltip));
         if self.focus_pattern {
             field.request_focus();
             self.focus_pattern = false;
@@ -546,16 +557,16 @@ impl App {
         if field.changed() {
             match session.set_key_pattern(&self.pattern) {
                 Ok(()) => {
-                    self.status = format!("Keys follow {}", self.pattern);
+                    self.status = text!(KeysFollow, pattern: self.pattern);
                     self.refusal.clear();
                 }
-                Err(err) => self.refusal = format!("that pattern is not one: {err}"),
+                Err(err) => self.refusal = text!(PatternRefused, why: err),
             }
         }
         let enabled = self.session.as_ref().is_some_and(|s| !s.is_empty());
         if ui
-            .add_enabled(enabled, egui::Button::new("Generate keys"))
-            .on_hover_text("give every entry whose key the pattern makes the key it makes now")
+            .add_enabled(enabled, egui::Button::new(text!(GenerateKeys)))
+            .on_hover_text(text!(GenerateHint))
             .clicked()
         {
             self.generate_all();
@@ -585,7 +596,7 @@ impl App {
             .unwrap_or_default();
         match session.set_key(entry, &now) {
             Ok(()) => {
-                self.status = format!("Renamed {was} to {now}");
+                self.status = text!(Renamed, was: was, now: now);
                 session.edited_at(Instant::now());
             }
             Err(err) => self.status = err.as_str().to_owned(),
@@ -599,11 +610,10 @@ impl App {
         };
         match session.generate_keys() {
             Ok(0) => {
-                self.status =
-                    String::from("Every key already follows the pattern, or was written by hand");
+                self.status = text!(EveryKeyFollows);
             }
             Ok(written) => {
-                self.status = format!("Renamed {written} keys, not saved yet");
+                self.status = text!(RenamedCount, count: written);
                 session.edited_at(Instant::now());
             }
             Err(err) => self.status = err.as_str().to_owned(),
@@ -619,14 +629,17 @@ impl App {
         };
         let count = session.duplicate_count();
         let showing = session.showing_only_duplicates();
-        let label = if showing {
-            format!("Duplicates {count} (shown)")
-        } else {
-            format!("Duplicates {count}")
-        };
+        let label = fill(
+            if showing {
+                Text::DuplicatesShown
+            } else {
+                Text::Duplicates
+            },
+            &[("count", count.to_string())],
+        );
         let clicked = ui
             .add_enabled(count > 0, egui::Button::new(label))
-            .on_hover_text("show only the entries that look like the same work twice")
+            .on_hover_text(text!(ShowDuplicates))
             .clicked();
         if clicked {
             session.show_only_duplicates(!showing);
@@ -635,10 +648,13 @@ impl App {
             self.clear_selection();
             self.draft = None;
             self.status = if showing {
-                String::from("Showing every entry")
+                text!(ShowEveryEntry)
             } else {
                 let pairs = if count == 1 { "pair" } else { "pairs" };
-                format!("Showing the entries in {count} duplicate {pairs}")
+                fill(
+                    Text::ShowDuplicatePairs,
+                    &[("count", count.to_string()), ("pairs", pairs.into())],
+                )
             };
         }
     }
@@ -697,14 +713,19 @@ impl App {
             return;
         };
         let noun = if written == 1 { "entry" } else { "entries" };
-        self.status = if refused == 0 {
-            format!("Wrote {} to {written} {noun}", self.batch.name.trim())
-        } else {
-            format!(
-                "Wrote {} to {written} {noun}; {refused} could not take it",
-                self.batch.name.trim()
-            )
-        };
+        self.status = fill(
+            if refused == 0 {
+                Text::WroteTo
+            } else {
+                Text::WroteToSome
+            },
+            &[
+                ("name", self.batch.name.trim().to_owned()),
+                ("count", written.to_string()),
+                ("entries", noun.into()),
+                ("refused", refused.to_string()),
+            ],
+        );
         self.batch_refusal = None;
         // The batch is a change like any other, so the save dot is set and the
         // pause before an undo step begins now.
@@ -729,7 +750,7 @@ impl App {
             &mut self.lookup,
         );
         match outcome {
-            import::Outcome::Asking(id) => self.status = format!("Asking for {id}"),
+            import::Outcome::Asking(id) => self.status = text!(AskingFor, id: id),
             import::Outcome::Filed { row, key } => {
                 self.importing = false;
                 self.identifier.clear();
@@ -737,7 +758,7 @@ impl App {
                 // The new row is picked, so the pane shows what arrived rather than
                 // leaving the reader to find it in a table it may be sorted away in.
                 self.select(Some(row));
-                self.status = format!("Imported {key}");
+                self.status = text!(Imported, key: key);
             }
             import::Outcome::Closed => self.importing = false,
             import::Outcome::Idle => {}
@@ -891,8 +912,8 @@ impl App {
             return;
         };
         self.status = match session.save() {
-            Ok(()) => String::from("Saved"),
-            Err(err) => format!("Save failed: {err}"),
+            Ok(()) => text!(Saved),
+            Err(err) => text!(SaveFailed, why: err),
         };
     }
 
@@ -911,8 +932,8 @@ impl App {
         };
         self.draft = None;
         self.status = match session.undo() {
-            Some(what) => format!("Undid {what}"),
-            None => String::from("Nothing to undo"),
+            Some(what) => text!(Undid, what: what),
+            None => text!(NothingToUndo),
         };
         // The row a restore touched may no longer be where the filter looks, and
         // a search right after an undo has to read the text that is back.
@@ -926,8 +947,8 @@ impl App {
         };
         self.draft = None;
         self.status = match session.redo() {
-            Some(what) => format!("Redid {what}"),
-            None => String::from("Nothing to redo"),
+            Some(what) => text!(Redid, what: what),
+            None => text!(NothingToRedo),
         };
         self.rematch();
     }
@@ -950,12 +971,12 @@ impl App {
 
     fn filter_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label("Search");
+            ui.label(text!(Search));
             let before = self.query.clone();
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.query)
                     .id(egui::Id::new(FILTER_ID))
-                    .hint_text("key, author, title... (space separates terms)")
+                    .hint_text(text!(SearchHint))
                     .desired_width(f32::INFINITY),
             );
             if self.focus_filter {
@@ -976,9 +997,9 @@ impl App {
 
     fn groups(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.heading("Groups");
+            ui.heading(text!(Groups));
             let narrowed = self.session.as_ref().map_or(0, Session::facet_count);
-            if narrowed > 0 && ui.small_button("Clear").clicked() {
+            if narrowed > 0 && ui.small_button(text!(Clear)).clicked() {
                 if let Some(session) = &mut self.session {
                     session.clear_facets();
                 }
@@ -1000,8 +1021,12 @@ impl App {
             let picked = session.picked(facet).map(str::to_owned);
             let shown = values.len();
             let heading = match &picked {
-                Some(picked) => format!("{}: {picked}", facet.heading()),
-                None => format!("{} ({shown})", facet.heading()),
+                Some(value) => text!(
+                    FacetHeadingPicked,
+                    heading: facet.heading(),
+                    value: value
+                ),
+                None => text!(FacetHeading, heading: facet.heading(), count: shown),
             };
             // A short list opens so its values are read without a click; a long
             // one stays shut, since its first twelve would fill the panel.
@@ -1011,16 +1036,13 @@ impl App {
                 .default_open(open)
                 .show(ui, |ui| {
                     if let Some(picked) = &picked {
-                        if ui.small_button("Show every value").clicked() {
+                        if ui.small_button(text!(ShowEveryValue)).clicked() {
                             cleared = Some(facet);
                         }
                         // The heading already names the value, so this press says
                         // what it does rather than repeating the word above it.
                         if ui
-                            .add(egui::Button::selectable(
-                                true,
-                                format!("{picked}  (let go)"),
-                            ))
+                            .add(egui::Button::selectable(true, text!(LetGo, value: picked)))
                             .clicked()
                         {
                             pressed = Some((facet, picked.clone()));
@@ -1031,7 +1053,11 @@ impl App {
                         if picked.as_deref() == Some(value.label.as_str()) {
                             continue;
                         }
-                        let label = format!("{} ({})", value.label, value.count);
+                        let label = text!(
+                            FacetValue,
+                            value: value.label,
+                            count: value.count
+                        );
                         if ui
                             .add(egui::Button::selectable(false, label).frame(false))
                             .clicked()
@@ -1040,7 +1066,7 @@ impl App {
                         }
                     }
                     if shown > LISTED {
-                        ui.weak(format!("and {} more", shown - LISTED));
+                        ui.weak(text!(AndMore, count: shown - LISTED));
                     }
                 });
         }
@@ -1066,10 +1092,15 @@ impl App {
         let shown = self.session.as_ref().map_or(0, |s| s.order().len());
         let narrowing = self.session.as_ref().map_or(0, |s| s.facet_count());
         self.status = if narrowing == 0 {
-            format!("{shown} entries")
+            text!(Entries, count: shown)
         } else {
             let lists = if narrowing == 1 { "list" } else { "lists" };
-            format!("{shown} entries  |  narrowed by {narrowing} facet {lists}")
+            text!(
+                EntriesNarrowed,
+                count: shown,
+                facets: narrowing,
+                lists: lists
+            )
         };
     }
 
@@ -1114,7 +1145,7 @@ impl App {
             .header(22.0, |mut header| {
                 for column in &self.columns {
                     header.col(|ui| {
-                        ui.strong(column.header());
+                        ui.strong(fill(column.header(), &[]));
                     });
                 }
             })
@@ -1170,7 +1201,7 @@ impl App {
         ui.horizontal(|ui| {
             if self.pending.is_some() {
                 ui.spinner();
-                ui.label("Opening...");
+                ui.label(text!(Opening));
             }
             if let Some(err) = &self.error {
                 ui.colored_label(egui::Color32::LIGHT_RED, err);
@@ -1240,7 +1271,7 @@ impl App {
                 );
                 match outcome {
                     Outcome::Edited => {
-                        self.status = String::from("Edited, not saved yet");
+                        self.status = text!(EditedNotSaved);
                         if let Some(session) = &mut self.session {
                             session.edited_at(Instant::now());
                         }
@@ -1263,7 +1294,7 @@ impl App {
                 self.table(ui);
             } else if self.pending.is_none() {
                 ui.centered_and_justified(|ui| {
-                    ui.label(RichText::new("Open a .bib file to begin.").weak());
+                    ui.label(RichText::new(text!(NoFile)).weak());
                 });
             }
         });
@@ -1273,7 +1304,7 @@ impl App {
             if ready {
                 let elapsed = startup.elapsed();
                 if self.status.is_empty() {
-                    self.status = format!("ready in {:.2} s", elapsed.as_secs_f64());
+                    self.status = text!(ReadyIn, seconds: elapsed.as_secs_f64());
                 }
                 self.startup = None;
             } else {

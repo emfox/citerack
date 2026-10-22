@@ -182,7 +182,27 @@ everything it copied, and an undo of that step drops the row rather than restori
 text. That is why `Change` records an empty `before` for an import — the honest
 description of a change whose subject was not there.
 
-## 10. Portability
+## 10. Why the words are a type and not a file
+
+`catalogue::Text` is an enum whose variants are sentences — `Undo` the button and
+`Undid` the line it produces are two variants even though both read as three
+letters today. That is the point: a key names the moment, not the spelling, so a
+later language can change one without the other. `text!` builds a string from a key
+and named arguments, and a name the caller forgot stays visible as `{count}` rather
+than panicking, because a window showing a stray brace is a bug a reader reports and
+a window that closes is one they cannot.
+
+Named arguments rather than positional ones are what let a translation reorder a
+sentence: a language that puts the count after the noun still fills `{count}`, and
+nothing at the call site changes.
+
+The rule only holds if it is checked. `scripts/check_catalogue.py` walks
+`crates/app/src` and fails on a readable literal handed to a label, a button, a hint
+or the status line. It found eight after the sweep that was supposed to be complete,
+which is the argument for having it: remembering to route a string through the
+catalogue is exactly the thing a person stops doing on the tenth widget.
+
+## 11. Portability
 
 `eframe` with `glow` and no default features is the smallest window that runs on
 X11, Wayland and the three desktop platforms without a system toolkit of its

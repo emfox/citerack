@@ -1,5 +1,6 @@
 //! The table's columns, and how a cell is rendered from a library row.
 
+use crate::catalogue::Text;
 use citerack_bib::Entry;
 use citerack_store::{Facet, Session};
 
@@ -35,16 +36,16 @@ impl Column {
         Self::Generated,
     ];
 
-    /// The header text.
-    pub fn header(self) -> &'static str {
+    /// The key of the text the header shows.
+    pub fn header(self) -> Text {
         match self {
-            Self::Key => "Key",
-            Self::Kind => "Type",
-            Self::Author => "Author",
-            Self::Title => "Title",
-            Self::Year => "Year",
-            Self::Venue => "Journal / Book",
-            Self::Generated => "Generated",
+            Self::Key => Text::ColumnKey,
+            Self::Kind => Text::ColumnType,
+            Self::Author => Text::ColumnAuthor,
+            Self::Title => Text::ColumnTitle,
+            Self::Year => Text::ColumnYear,
+            Self::Venue => Text::ColumnVenue,
+            Self::Generated => Text::ColumnGenerated,
         }
     }
 

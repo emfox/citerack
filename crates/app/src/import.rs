@@ -2,6 +2,7 @@
 //! place while it is open: one identifier is typed, one button asks, and the answer
 //! is either an entry filed into the library or a sentence saying what went wrong.
 
+use crate::text;
 use citerack_index::read_identifier;
 use citerack_store::Session;
 use egui::{Color32, RichText, TextEdit, Ui};
@@ -36,25 +37,25 @@ pub fn show(
 ) -> Outcome {
     let mut outcome = Outcome::Idle;
     ui.horizontal(|ui| {
-        ui.heading("Import");
+        ui.heading(text!(ImportHeading));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("Close").clicked() {
+            if ui.button(text!(Close)).clicked() {
                 lookup.cancel();
                 *state = State::Idle;
                 outcome = Outcome::Closed;
             }
         });
     });
-    ui.label("Paste a DOI, an arXiv id, or the link either one is shown at.");
+    ui.label(text!(ImportHint));
     ui.add_space(4.0);
 
     let field = ui.add(
         TextEdit::singleline(typed)
             .id_salt("import-id")
-            .hint_text("10.1038/nphys1170 or 2101.01234"),
+            .hint_text(text!(ImportPlaceholder)),
     );
     let asked = ui
-        .add_enabled(!typed.trim().is_empty(), egui::Button::new("Look up"))
+        .add_enabled(!typed.trim().is_empty(), egui::Button::new(text!(LookUp)))
         .clicked()
         || field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
     if asked && !lookup.is_asking() {
@@ -72,7 +73,7 @@ pub fn show(
         State::Asking(id) => {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label(format!("Asking for {id}"));
+                ui.label(text!(AskingFor, id: id));
             });
         }
         State::Failed(why) => {
@@ -84,7 +85,14 @@ pub fn show(
                 .as_ref()
                 .map_or_else(|| wanted.clone(), |session| session.key_for(&wanted));
             ui.add_space(4.0);
-            ui.label(RichText::new(format!("{} · {key}", record.kind)).strong());
+            ui.label(
+                RichText::new(text!(
+                    KindAndKey,
+                    kind: record.kind.as_str(),
+                    key: key
+                ))
+                .strong(),
+            );
             if let Some(title) = record.field("title") {
                 ui.label(truncate(title, 90));
             }
@@ -93,7 +101,7 @@ pub fn show(
             }
             ui.add_space(4.0);
             if ui
-                .add_enabled(session.is_some(), egui::Button::new("Add to the library"))
+                .add_enabled(session.is_some(), egui::Button::new(text!(AddToLibrary)))
                 .clicked()
                 && let Some(entry) = session.as_mut().map(|session| (session, record))
             {
@@ -110,13 +118,7 @@ pub fn show(
         State::Idle => {}
     }
     ui.add_space(6.0);
-    ui.label(
-        RichText::new(
-            "Crossref answers for a DOI and arXiv for an id. A lookup that fails \
-             leaves the library untouched.",
-        )
-        .weak(),
-    );
+    ui.label(RichText::new(text!(ImportNote)).weak());
     outcome
 }
 
@@ -127,7 +129,7 @@ fn import(session: &mut Session, entry: citerack_bib::Entry, key: &str) -> Resul
     entry.key = key.into();
     session
         .import(entry)
-        .map_err(|why| format!("the record could not be filed: {why}"))
+        .map_err(|why| text!(RecordNotFiled, why: why))
 }
 
 fn truncate(text: &str, width: usize) -> String {

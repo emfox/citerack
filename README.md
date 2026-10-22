@@ -28,6 +28,7 @@ built before the first row is drawn, and the window reports both.
 | Opens | a paper from a `file` field with one press, whoever wrote the path; one that is not there is marked beside the field |
 | Batches | one field written across a picked range with a typed name and value, as one undo step |
 | Imports | an entry from a DOI or an arXiv id, typed or pasted as a link, filed under a key nothing else holds |
+| Speaks | from one catalogue, so the window is one file away from a second language |
 | Shows | a table with key, type, author, title, year and venue, and a detail pane per entry |
 
 Everything here is measured, and `docs/Performance.md` has the machine and the

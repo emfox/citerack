@@ -58,6 +58,9 @@ def py(*args: str) -> tuple[str, ...]:
 CHECKS: tuple[Check, ...] = (
     # Section 1 and 2 of docs/Conventions.md.
     Check("language", "policy", (py("scripts/check_language.py"),)),
+    # Section 2.1: a sentence the window shows lives in the catalogue, not at the
+    # widget that draws it.
+    Check("catalogue", "policy", (py("scripts/check_catalogue.py"),)),
     # Section 3. The history is checked from its first commit, so a rewrite of
     # an old message cannot slip in behind a clean recent one.
     Check(
