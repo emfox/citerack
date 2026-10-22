@@ -145,6 +145,11 @@ against says so in the changelog only when a user could notice.
 
 This is what keeps the roadmap from becoming a history.
 
+A changelog item is one thing a user can now do, in three lines or fewer, opening
+with the thing in bold. The reason it was built and the way it works belong in
+`docs/`, which a release note links to rather than repeats; a note that explains
+itself has stopped being readable at the speed a release is read.
+
 ## 6. Numbers in a document
 
 Any figure quoted in `docs/` names the machine, the command and the build it came

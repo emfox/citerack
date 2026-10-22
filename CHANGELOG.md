@@ -10,11 +10,9 @@ What a user can do now that they could not before. Each release names the thing;
 - **Light, dark or follow the desktop.** Three words at the right end of the
   toolbar choose it; the window opens on `System`, and a machine that reports no
   preference is drawn light.
-- **Generate citation keys from fields.** A toolbar box takes a pattern —
-  `{author}{year}` by default, with `:l`/`:u` for case and numbers for words and
-  letters. A `Generated` column previews every key before the file moves, duplicates
-  take a letter, and one press or a double-click writes them. Pressing twice changes
-  nothing; `Undo` takes it back.
+- **Generate citation keys from fields.** A pattern such as `{author}{year}` is
+  previewed in a `Generated` column, duplicates take a letter, and one press writes
+  them all. Pressing twice changes nothing; `Undo` takes it back.
 - **Required fields are marked.** The detail pane names a field the entry's type
   needs in red, says `missing` or `empty`, and adds it when you write in the empty
   box.
