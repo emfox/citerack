@@ -107,6 +107,13 @@ developer has installed is a library the user is assumed to have.
 cannot know why, and a rename or an i18n sweep reaches callers in a shape that
 looks like a squash.
 
+`review/commit-scope` reads the history and names commits to read again, by two
+signs: a subject whose area holds only the small part of the lines — a message
+written before the work was done — and two areas outside the crates, such as
+`scripts` and `.github`, carrying real lines under one subject. Crossing crates is
+not a sign of anything: a feature is written in `bib`, indexed in `index`, saved
+through `store` and shown in `app`, and that is one change.
+
 The commit message is checked at three points, so a violation is caught before it
 becomes history:
 
@@ -125,12 +132,11 @@ sh scripts/install-hooks.sh
 
 ### 4.1 Exemptions
 
-`check_language.py` fails on CJK in source and documentation. Four exemptions
+`check_language.py` fails on CJK in source and documentation. Three exemptions
 exist, each narrow, and each carries its reason in the script:
 
 | Exemption | Why |
 | --- | --- |
-| anything under `locales/` | locale catalogues are the translation data |
 | `docs/Conventions.md` | it names the rule it enforces |
 | `scripts/check_language.py` | it matches CJK by definition |
 | a string literal inside `#[cfg(test)]` | a test of how non-Latin text is split cannot spell its input any other way |

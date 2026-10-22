@@ -12,7 +12,8 @@ library's business; what matters is where the eye goes and what a keystroke does
 
 ```
 +---------------------------------------------------------------+
-| Open | Sort Key Author Year Title | Save       toolbar         |
+| Open Import | Sort Key Author Year Title | Save *             |
+| Undo Redo | Key [pattern] | Duplicates | System (dark)       |
 +---------------------------------------------------------------+
 | Search [....................................]  filter box     |
 +----------+---------------------------------------+------------+
@@ -41,16 +42,22 @@ users to expect. It is used here because that expectation is worth keeping, not
 because the arrangement is interesting: a reader who has used any such tool will
 find the table in the middle and the fields on the right without being told.
 
+The right-hand panel is one of three things: the detail pane of the selected row,
+the batch box while more than one row is picked, or the import box while it is
+open. It is one panel rather than three because the table's width should not
+change depending on which of them is showing.
+
 ## 2. Toolbar
 
 | Control | Behaviour |
 | --- | --- |
 | Open | asks for a `.bib` file and replaces the session |
+| Import | asks for a DOI or an arXiv id, shows the record that came back, and files it under a key the library does not hold; disabled until a library is open |
 | Sort by Key / Author / Year / Title | sorts by that column; clicking the active one reverses it |
 | Save | writes the file back, byte for byte outside the fields that were edited |
-| Duplicates N | narrows the table to the entries in a duplicate pair, and back |
+| Undo / Redo | takes back or puts back one change; disabled when there is none to take |
 | Key `{author}{year}` | the pattern a generated key follows, read as it is typed |
-| Generate keys | gives every entry the key the Generated column shows |
+| Duplicates N | narrows the table to the entries in a duplicate pair, and back |
 | System (dark) / Dark / Light | which theme the window is drawn in; right-aligned, and `System` names the theme it resolves to |
 
 The sort buttons carry `^` or `v` showing the direction. Clicking a different
@@ -125,9 +132,13 @@ that lays out every row is the second-most common way a bibliography tool
 freezes, after parsing on the UI thread.
 
 Clicking a row selects it and fills the detail pane. Arrow keys move the
-selection once the table has focus. Double-clicking a row gives that entry the key
-its own row shows in the Generated column, which is one gesture for one entry rather
-than a trip to the toolbar.
+selection once the table has focus. `Shift` with a click or with an arrow moves the
+far end of the range rather than the anchor, so a range is walked out one row per
+press from one starting point, and `Ctrl`/`Cmd` + `A` picks every row the table is
+showing — everything a search left, not everything the file holds. More than one
+picked row turns the right-hand panel into the batch box (§6). Double-clicking a row
+gives that entry the key its own row shows in the Generated column, which is one
+gesture for one entry rather than a trip to the toolbar.
 
 ## 5. Generated keys
 
@@ -168,7 +179,75 @@ somebody wrote on purpose is replaced like any other: the column and the button 
 what a press would do, and a button that silently skipped rows would be a button
 whose count cannot be trusted. `Undo` takes a press back.
 
-## 6. Detail pane
+## 6. Batch box
+
+When more than one row is picked the right-hand panel stops being a detail pane
+and becomes a box: `N entries picked`, a field name, a value, and `Write to all`.
+The detail pane cannot answer for several entries at once — there is no single
+`title` to show — so the panel says what it is doing instead of showing the last
+row and lying about the selection.
+
+**Both the name and the value are typed.** A list of field names would be a
+schema, and the parser deliberately has none: any entry may hold any field, so the
+box accepts any name and lets the entries say whether they can hold the value.
+`Enter` in the value box writes the batch, which is where the cursor is once the
+value has been typed.
+
+**A field the entries do not have is added, not skipped.** A batch on `keywords`
+tags entries that had none as well as ones that did; otherwise the answer would
+depend on what the library already held, which is the thing the reader is trying
+to change.
+
+**What they already say is said first.** Once a name is typed, one weak line under
+the boxes reports what the picked entries hold in that field — `all of them say
+x`, `they say y and z between them: …`, or `none of them has keywords yet`. A
+value that is about to overwrite four different ones is worth knowing about before
+the press rather than after it.
+
+**A refusal leaves the typing where it was.** When no entry can take the name or
+the value, the reason is drawn in red inside the box as well as in the status line,
+and nothing is written: a batch that half-succeeded in a way the window does not
+say is worse than one that did nothing. Entries that refuse while others accept are
+counted in the status line instead — `Wrote keywords to 8 entries; 2 could not take
+it` — so a partial batch is reported as exactly that.
+
+**One press, one undo.** The whole batch is a single step in the history, because a
+reader who retagged ten entries thinks of it as one action rather than ten.
+
+## 7. Import box
+
+`Import` in the toolbar replaces the right-hand panel with a box: a heading and
+`Close`, one line of instruction, one text box, and `Look up`. The button is
+disabled until something is typed; `Enter` in the box does the same.
+
+**What it accepts.** A bare DOI (`10.1038/nphys1170`), a DOI shown as a link
+(`https://doi.org/10.1038/nphys1170`, `dx.doi.org/…`), a bare arXiv id in either
+form (`2101.01234`, `math.GT/0309136`), with or without a version, or the link
+either one is shown at. A trailing full stop or a pair of brackets around it is
+part of the sentence it was copied from, not part of the identifier. Anything that
+is neither is refused before a request goes out, and the refusal says so.
+
+**What happens while it waits.** A spinner and `Asking for <id>`. The rest of the
+window stays live — the table scrolls, the status line answers — because the
+request is on its own thread, and eight seconds of waiting is a spinner rather than
+a frozen window. `Close` while it is waiting cancels it.
+
+**What comes back** is shown before it is filed: the entry type and the key it
+would get, then the title, then the authors, so a record that is the wrong paper is
+recognised before the library holds it. `Add to the library` files it and the new
+row is selected, so the detail pane shows what arrived rather than leaving the
+reader to find it in a table it may be sorted away from.
+
+**The key is made, then moved out of the way.** It is the first author's surname
+and the year; a key the library already holds takes a letter — `Doe2021`, then
+`Doe2021a` — and one that has every letter takes a number. The key shown in the box
+is the one that will be written, because it is worked out before the press.
+
+**A failure changes nothing.** A record the service does not have, a timeout, an
+answer that does not read as a record: each is a red sentence in the box, and the
+library is exactly as it was. The one thing an import is not is half an entry.
+
+## 8. Detail pane
 
 Shows the entry type and key as a header, then every field in the order the file
 listed them, with the field name in the weak colour and the value in the normal
@@ -212,6 +291,30 @@ around the `=`, the order of the fields and every byte of every other entry stay
 as the file had them, which is what lets a hand-formatted library be edited here
 rather than only read.
 
+**A `file` field is a list of pages, not one line of paths.** BibTeX gives `file`
+no definition, so the field is drawn differently from the others: under its box,
+one row per path it names, each a link that hands that file to the desktop. The
+text stays in the box above, because a reader still has to be able to edit the
+field as text — a path written for another machine is a thing people fix by hand,
+and a value the window cannot read has to stay visible as the characters the file
+holds.
+
+The paths are read in the three shapes writers actually produce: JabRef's
+`description:path:type` separated by `:\`, Zotero's MIME type where JabRef writes
+the word `PDF`, and Mendeley's `$\backslash$` where a backslash belongs. A Windows
+drive letter survives as a drive letter rather than becoming a relative path.
+
+A path that resolves to nothing is not a dialog: the row reads `missing` in red
+beside the path that was looked for, which wraps rather than being cut off, and
+the window carries on. A library full of paths from another machine is a normal
+thing to open, and a modal for each one would make it an impossible thing.
+
+Relative paths are counted from the directory of the library, not from the window's
+working directory, because that is the only base a writer of the path can have
+meant. A path that cannot be opened by this system — no program claims it, or the
+desktop refuses — says so in one sentence in the status line rather than silently
+doing nothing.
+
 When the entry is in a duplicate pair, one line per pair appears under the header,
 naming the other entry's key and what the two matched on. A pair is reported once
 per reason, so an entry sharing both a DOI and a title with another says so twice:
@@ -226,7 +329,7 @@ and neither is a year alone: without both halves there is nothing to be confiden
 about, and a guess that is wrong costs more attention than a duplicate that went
 unreported.
 
-## 7. Groups
+## 9. Groups
 
 Four lists, in the order a reader narrows: **Author**, **Journal / Book**, **Year**
 and **Type**. Each value carries the number of rows pressing it would leave on the
@@ -290,7 +393,7 @@ was this published" does not care whether the file called it a journal, a book
 title or a publisher; the column takes journal, else book title, else publisher,
 and the list takes the same three in the same order.
 
-## 8. Keyboard
+## 10. Keyboard
 
 | Key | Where | Effect | Also a control |
 | --- | --- | --- | --- |
@@ -302,10 +405,14 @@ and the list takes the same three in the same order.
 | `Ctrl`/`Cmd` + `Shift` + `Z`, or `Ctrl` + `Y` | anywhere | put the change back | the `Redo` button |
 | `Down` | table | select the next row | the row itself |
 | `Up` | table | select the previous row | the row itself |
+| `Shift` + `Down`, `Shift` + `Up` | table | move the far end of the picked range | `Shift`-click |
+| `Ctrl`/`Cmd` + `A` | table | pick every row the table is showing | — |
 | `Tab`, `Shift` + `Tab` | anywhere but the detail pane | next or previous control, the facet lists and the theme words included | the control itself |
 | `Ctrl`/`Cmd` + `D` | anywhere | put the cursor in the first field of the entry | the first field box |
 | `Tab`, `Shift` + `Tab` | detail pane | next or previous field, wrapping | the fields themselves |
 | `Escape` | detail pane | leave the field box, keeping what was typed | clicking outside it |
+| `Enter` | batch box | write the field across every picked entry | `Write to all` |
+| `Enter` | import box | look the identifier up | `Look up` |
 
 The list is short because a key binding nobody knows about is a key binding
 nobody uses. Each entry here is also reachable from a control, so the keyboard is
@@ -324,14 +431,18 @@ nothing selected, `Down` takes the first row and `Up` the last, so either key
 does something from wherever the user starts.
 
 `Ctrl+D` is how the detail pane is reached without a click: it puts the cursor in
-the entry's first field, and from there `Tab` walks the fields in file order,
-wrapping at either end so one key reaches the whole entry. `Tab` and `Escape`
-belong to the pane while a box holds the cursor; everywhere else `Tab` is egui's,
-moving through the toolbar and the facets. `Escape` leaves the box and commits
-what was typed in it, exactly as clicking elsewhere in the pane would, so leaving
-a box never loses an edit.
+the entry's first field. From there `Tab` walks the fields in file order and wraps
+at either end, so one key reaches the whole entry. `Tab` and `Escape` are taken
+from egui while a field box holds the cursor — egui would otherwise spend them on
+moving the cursor out of the box before the key could be acted on — and `Escape`
+leaves the box and commits what was typed in it, exactly as clicking elsewhere in
+the pane would, so leaving a box never loses an edit.
 
-## 9. Empty and loading states
+`Shift` with either arrow extends the picked range. The two keys only reach the
+table when no box holds the cursor, so a range cannot be extended by accident
+while a value is being typed.
+
+## 11. Empty and loading states
 
 | State | What is drawn |
 | --- | --- |
@@ -339,23 +450,26 @@ a box never loses an edit.
 | File being read | a spinner and `Opening...` in the status line; the toolbar stays live |
 | Parse failed | the error's message, with the byte offset and line, in the status line |
 | A query with no match | an empty table and `Found 0 results`; the filter box keeps its text |
+| A lookup in flight | a spinner and `Asking for <id>` in the import box; the rest of the window answers as usual |
+| A lookup that failed | one red sentence in the import box, and the library exactly as it was |
 
 A parse error names a position rather than an entry, because the parser stops
 where it stopped and the reader's next move is to open the file at that line.
 
-## 10. What this spec refuses
+## 12. What this spec refuses
 
 - No modal dialog for anything this release does. A modal takes the keyboard away
-  from a user who was typing.
+  from a user who was typing. The import box and the batch box are panels for that
+  reason: the rest of the window keeps answering while either is open.
 - No tree of "folders" over the library. The filter box and the groups list
   cover the same ground with fewer clicks and no state to lose.
 - No column that exists only to be sorted. Every column is read.
-- No progress bar for opening in this release. It would need a byte offset from
-  the parser, and a bar that lies about how far along it is costs more trust
-  than the absence of one costs patience. The spinner says "working", which is
-  all that is known.
+- No progress bar for opening or for a lookup. Opening would need a byte offset
+  from the parser, and a lookup has no way to know how long a service will take;
+  a bar that lies about how far along it is costs more trust than the absence of
+  one costs patience. The spinner says "working", which is all that is known.
 
-## 11. How these claims are tested
+## 13. How these claims are tested
 
 The window is drawn by a function that takes a context, so a test can call it
 without an event loop or a display. The test harness sends clicks and keystrokes

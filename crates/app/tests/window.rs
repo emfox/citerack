@@ -456,6 +456,19 @@ fn shift_tab_walks_the_fields_backwards() {
 }
 
 #[test]
+fn one_tab_press_moves_one_field_even_with_the_cursor_in_a_box() {
+    let mut harness = opened();
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+    harness.run();
+    harness.key_press(egui::Key::Tab);
+    harness.run();
+    // Tab is locked away from egui while a field box holds the cursor, so one
+    // press is one step: a walk that skipped a box would pass over a field the
+    // reader never saw.
+    assert_eq!(harness.state().focused_field(), Some(1));
+}
+
+#[test]
 fn escape_leaves_the_field_box_without_undoing_the_typing() {
     let mut harness = opened();
     // Ctrl+D lands in the first field, which is the author's.
