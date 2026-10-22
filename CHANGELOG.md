@@ -3,7 +3,7 @@
 What a reader of the release notes can now do. Anything that changed only inside
 the repository is not listed here.
 
-## Unreleased
+## 0.1.1 - 22 October 2026
 
 ### Added
 

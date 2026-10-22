@@ -26,8 +26,8 @@ Editing, and everything downstream of it, is on the [roadmap](docs/Roadmap.md).
 ## Install
 
 Every tagged release publishes a Linux binary and a Windows one, each with a
-`.sha256` beside it. The first one is
-[`v0.1.0`](https://github.com/emfox/citerack/releases/tag/v0.1.0). From a checkout
+`.sha256` beside it. The newest is
+[`v0.1.1`](https://github.com/emfox/citerack/releases/latest). From a checkout
 instead:
 
 ```bash
