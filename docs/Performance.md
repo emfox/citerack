@@ -95,7 +95,10 @@ answer the index gives depends on it.
 ## 3. Searching
 
 Best of five runs each, after the index exists. Quote includes the process's
-start-up, which is why a query matching nothing still costs something.
+start-up, which is why a query matching nothing still costs something. These were
+taken on the same shared core as §2, and move with it the same way: re-measured on
+the EPYC host, `Neural` reads 0.16 ms at 15 000 and 1.01 ms at 100 000, and the
+four-word query 5.4 ms.
 
 | Entries | Query | Matches | Query time |
 | --- | --- | --- | --- |

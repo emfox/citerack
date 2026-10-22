@@ -20,18 +20,18 @@ built before the first row is drawn, and the window reports both.
 | Reads | BibTeX, including fields it does not model, which survive a save |
 | Edits | any field in place, with `Ctrl+Z` over a run of typing; a field the entry's type needs but the file lacks is named and added |
 | Saves | byte-identically when nothing was edited |
-| Searches | case- and accent-insensitive, over every field, in 0.10 ms at 15 000 entries and 0.72 ms at 100 000 for a word; a four-word query over 100 000 costs 4.46 ms |
+| Searches | case- and accent-insensitive, over every field, in about 0.16 ms at 15 000 entries and 1.0 ms at 100 000 for a word; a four-word query costs a few milliseconds |
 | Filters | by author, journal, year and type, with a count that is what the filter would actually leave |
 | Sorts | key, first author, year, title, without re-reading an entry |
 | Names | a duplicate by DOI, or by title and year with case, accents, braces and punctuation folded away |
 | Keys | generated from a pattern such as `{author}{year}`, previewed before the file moves |
 | Shows | a table with key, type, author, title, year and venue, and a detail pane per entry |
 
-Everything here is measured, and `docs/Performance.md` has the command that
-re-derives each figure. A library of 134 352 entries, which is a real user's file
-attached to a bug report, opens in 2.85 s:
+Everything here is measured, and `docs/Performance.md` has the machine and the
+command that re-derives each figure. A real user's 134 352-entry library, attached
+to a bug report about slow scrolling elsewhere, opens in about a second:
 
-![A library of 134 352 entries, open in 2.85 s](docs/images/large-library.png)
+![A library of 134 352 entries, open in 1.26 s](docs/images/large-library.png)
 
 Bulk editing, importing from a DOI, attachments and a translated interface are on
 the [roadmap](docs/Roadmap.md).
