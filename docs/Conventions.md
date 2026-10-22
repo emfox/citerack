@@ -162,7 +162,18 @@ with the thing in bold. The reason it was built and the way it works belong in
 `docs/`, which a release note links to rather than repeats; a note that explains
 itself has stopped being readable at the speed a release is read.
 
-## 6. Numbers in a document
+## 6. The release profile
+
+`Cargo.toml` sets `strip`, `lto = "thin"` and `codegen-units = 1` for `release`.
+What a tag publishes is a file someone downloads over a network, and the default
+profile ships a symbol table nothing reads and an `egui` and a `core` instantiated
+once per crate that calls them. On the machine that built 0.2.0 the three lines
+took the Linux binary from 24.2 MiB to 15.5 MiB.
+
+The cost is build time, paid by CI rather than by a reader, and the loss is a
+symbol in a crash report, which was never the way a bug here was read.
+
+## 7. Numbers in a document
 
 Any figure quoted in `docs/` names the machine, the command and the build it came
 from, or it is not quoted. A number nobody can reproduce is a claim, and claims

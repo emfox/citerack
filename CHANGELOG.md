@@ -3,6 +3,13 @@
 What a user can do now that they could not before. Each release names the thing;
 `docs/` explains the why.
 
+## Unreleased
+
+### Changed
+
+- **The downloads are smaller.** A release is built with its symbols stripped and
+  with the whole program optimised as one; nothing a user does has changed.
+
 ## 0.2.0 - 22 October 2026
 
 What a reader who filed papers from a PDF, or edited the same field across a
