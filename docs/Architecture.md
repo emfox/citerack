@@ -112,7 +112,28 @@ search: it records a time, and 120 ms of quiet later the search runs. Without
 that, typing a word runs the engine once per character, and a query is a query
 however few characters asked for it.
 
-## 7. Portability
+## 7. Why an attachment is read as text, then opened by the desktop
+
+The `file` field has no definition in BibTeX and three writers in practice, and
+they disagree: JabRef separates with `:\`, Zotero writes a MIME type where JabRef
+writes `PDF`, Mendeley leaves `$\backslash$` where a backslash belongs. Reading
+them is a text problem, so `citerack-bib` answers it — `parse_file_field` splits
+and unescapes, and does not touch a disk, which is what makes it testable as a
+transformation over strings rather than with a fixture folder.
+
+Resolving is a separate step, in `app`, because that is where the library's own
+path is known: a relative path is counted from beside the library, which is the
+only base a reader can be sure a manager meant. A path that resolves to nothing
+does not become a dialog. It becomes a row that says `missing` under the field
+that named it, and the window is never interrupted to report it.
+
+Opening hands the path to the platform's own opener — `xdg-open`, `open`,
+`cmd /c start`. That is deliberate rather than lazy: linking a toolkit to show a
+PDF would add libraries to a binary whose whole claim is that it links three, and
+a reader already has a viewer they like. The same reasoning is why the roadmap
+refuses to render a PDF in the window.
+
+## 8. Portability
 
 `eframe` with `glow` and no default features is the smallest window that runs on
 X11, Wayland and the three desktop platforms without a system toolkit of its

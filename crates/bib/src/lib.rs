@@ -4,6 +4,7 @@
 
 mod edit;
 mod error;
+mod file;
 mod key;
 mod library;
 mod model;
@@ -13,6 +14,7 @@ mod write;
 
 pub use edit::{FieldLayout, Layout};
 pub use error::{ParseError, ParseErrorKind};
+pub use file::{Attachment, parse_file_field};
 pub use key::{Case, DEFAULT as DEFAULT_KEY_PATTERN, Pattern, PatternError, unique};
 pub use library::{EditError, EntryId, EntryState, Library, Span};
 pub use model::{Delimiter, Entry, EntryKind, Field, FieldName};

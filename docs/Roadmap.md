@@ -18,7 +18,6 @@ is.
 | --- | --- | --- |
 | Bulk operations | retagging or renaming in one step | a multi-row selection can be edited, and the file is still byte-identical outside the edited fields |
 | UI strings in one catalogue | a window that speaks a language other than English | every word the window shows comes from one file, and a second language file changes the window without a rebuild |
-| External file attachments | opening the PDF from the entry | a field naming a path opens that file, and a missing file is reported beside the field rather than as a dialog |
 | Import from DOI and arXiv | typing an identifier instead of an entry | an identifier produces a complete entry, and a failed lookup leaves the library untouched |
 
 The catalogue row is what a translated window needs, and what the tree does not

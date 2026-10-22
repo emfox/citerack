@@ -2,7 +2,8 @@
 //! editable in place, and below them a box for every required field the entry is
 //! missing. A value is committed when its box loses focus.
 
-use citerack_bib::{Entry, EntryKind, is_required, wanted};
+use crate::attach::{self, Found};
+use citerack_bib::{Attachment, Entry, EntryKind, is_required, parse_file_field, wanted};
 use citerack_store::Session;
 use egui::{Color32, RichText, TextEdit, Ui};
 
@@ -13,6 +14,11 @@ const NEEDS: Color32 = Color32::from_rgb(224, 122, 95);
 /// The narrowest a field box may be drawn, so a long field name still leaves
 /// something to type in rather than a sliver of a box.
 const MIN_BOX: f32 = 60.0;
+
+/// The colour a file the field names but the disk does not hold is reported in.
+/// Amber rather than red: nothing is broken in the entry, and the library still
+/// saves exactly as it was.
+const MISSING: Color32 = Color32::from_rgb(214, 168, 92);
 
 /// One field box being typed in: the row, the field, and the text in the box.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,12 +33,14 @@ pub struct Draft {
 }
 
 /// What a frame of the pane produced, which the window acts on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     /// Nothing in the pane changed the library.
     Idle,
     /// An entry was edited.
     Edited,
+    /// A file beside a field was asked for, and the window is to open it.
+    Opened(std::path::PathBuf),
 }
 
 /// One row of the pane: a field the entry holds, or a required field it lacks.
@@ -103,6 +111,7 @@ pub fn show(
         ui.weak("Select an entry to see its fields.");
         return Outcome::Idle;
     };
+    let library = session.path().to_path_buf();
     let Some(entry) = session.library().entries().get(row) else {
         ui.weak("Select an entry to see its fields.");
         return Outcome::Idle;
@@ -230,6 +239,18 @@ pub fn show(
                         });
                     }
                 });
+                // Below the box, at the depth of the value, the files it names.
+                // The paths are checked once per frame that draws them: a file
+                // opened or deleted outside the window is noticed within one.
+                let files = files_of(each);
+                if !files.is_empty() {
+                    let checked: Vec<(Attachment, Found)> = attach::resolve(&library, &files)
+                        .into_iter()
+                        .zip(files)
+                        .map(|(found, attachment)| (attachment, found))
+                        .collect();
+                    draw_files(ui, &checked, names + gap, &mut outcome);
+                }
             }
         });
 
@@ -255,10 +276,55 @@ pub fn show(
     outcome
 }
 
-/// How many boxes the pane draws for an entry: the fields it holds, then the
-/// required ones it lacks. A key that walks the entry counts these, not the file.
+/// How many boxes the pane draws for an entry: its fields, then the required ones
+/// it lacks. The files listed under a box are read, not typed in, so not counted.
 pub fn rows_count(entry: &Entry) -> usize {
     rows_of(entry).len()
+}
+
+/// The files a row names, in the order the field lists them. Empty for a field
+/// that is not a `file` field, and for one that names nothing it can open.
+fn files_of(row: &Row) -> Vec<Attachment> {
+    if row.name.eq_ignore_ascii_case("file") {
+        parse_file_field(&row.value)
+    } else {
+        Vec::new()
+    }
+}
+
+/// Draws the files a `file` field names, each a press away from opening. A missing
+/// one is said here, beside the field, rather than as a dialog over the window.
+fn draw_files(ui: &mut Ui, files: &[(Attachment, Found)], indent: f32, outcome: &mut Outcome) {
+    for (attachment, found) in files {
+        ui.horizontal(|ui| {
+            ui.add_space(indent);
+            match found {
+                Found::File(path) => {
+                    let label = if attachment.name.is_empty() {
+                        path.file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| path.display().to_string())
+                    } else {
+                        attachment.name.clone()
+                    };
+                    if ui
+                        .link(label)
+                        .on_hover_text(path.display().to_string())
+                        .clicked()
+                    {
+                        *outcome = Outcome::Opened(path.clone());
+                    }
+                    if !attachment.kind.is_empty() {
+                        ui.weak(&attachment.kind);
+                    }
+                }
+                Found::Missing(path) => {
+                    ui.colored_label(MISSING, "missing");
+                    ui.weak(path.display().to_string());
+                }
+            }
+        });
+    }
 }
 
 /// The rows to draw: the fields the file holds in its own order, then a box for

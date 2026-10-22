@@ -2,6 +2,7 @@
 //! of groups, table and detail pane, and a status line. The window appears
 //! before the file is read, so a large library never shows a frozen frame.
 
+mod attach;
 mod columns;
 mod detail;
 mod ui;

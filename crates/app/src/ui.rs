@@ -9,6 +9,7 @@ use citerack_store::{Facet, Session};
 use egui::{Align, Label, Layout, RichText, Theme, ThemePreference};
 use egui_extras::{Column as TableColumn, TableBuilder};
 
+use crate::attach;
 use crate::columns::{Column, entry_at};
 use crate::detail::{self, Draft, Outcome};
 
@@ -1008,11 +1009,22 @@ impl App {
                     &mut self.focus_field,
                     &mut self.focused_field,
                 );
-                if outcome == Outcome::Edited {
-                    self.status = String::from("Edited, not saved yet");
-                    if let Some(session) = &mut self.session {
-                        session.edited_at(Instant::now());
+                match outcome {
+                    Outcome::Edited => {
+                        self.status = String::from("Edited, not saved yet");
+                        if let Some(session) = &mut self.session {
+                            session.edited_at(Instant::now());
+                        }
                     }
+                    // A file is opened by the desktop, and the window says which
+                    // one so a click that started nothing is visible as such.
+                    Outcome::Opened(path) => {
+                        self.status = match attach::open(&path) {
+                            Ok(()) => format!("Opened {}", path.display()),
+                            Err(why) => format!("{why}: {}", path.display()),
+                        };
+                    }
+                    Outcome::Idle => {}
                 }
             });
 

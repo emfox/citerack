@@ -1233,3 +1233,60 @@ fn the_system_word_says_which_theme_it_is_showing() {
     assert_eq!(harness.state().theme(), egui::ThemePreference::System);
     assert_eq!(harness.state().drawn_theme(&harness.ctx), egui::Theme::Dark);
 }
+
+/// A library whose entry names a paper beside it, made to exist or not. The path
+/// is relative, so the folder is one a test can create and clear up.
+fn with_attachment(present: bool) -> (Harness<'static, App>, PathBuf) {
+    let dir = std::env::temp_dir().join(format!(
+        "citerack-window-{}",
+        if present { "present" } else { "missing" }
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("papers")).expect("a folder");
+    if present {
+        std::fs::write(dir.join("papers/smith2024.pdf"), b"%PDF").expect("a file");
+    }
+    let text = "\
+@Article{smith2024,
+  Author = {Smith, John},
+  Title  = {A Study of Braces},
+  Year   = 2024,
+  File   = {smith2024.pdf:papers/smith2024.pdf:PDF},
+}
+";
+    let session = Session::from_text(
+        dir.join("library.bib"),
+        text,
+        &citerack_bib::ParseOptions { recover: true },
+    )
+    .expect("the input parses");
+    let mut harness = harness(App::with_session(session));
+    harness.state_mut().select(Some(0));
+    harness.run();
+    (harness, dir)
+}
+
+#[test]
+fn an_entry_with_a_paper_lists_it_below_the_field() {
+    let (harness, dir) = with_attachment(true);
+    harness.get_by_label("smith2024.pdf");
+    harness.get_by_label("PDF");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_file_that_is_not_there_is_said_beside_the_field() {
+    let (harness, dir) = with_attachment(false);
+    // The word says the file is not there; the path says where it was looked for,
+    // which is what a reader needs to put it right. Written out in full rather
+    // than guessed at from the field.
+    assert!(
+        harness.query_all_by_label("missing").count() > 0,
+        "the row says the file is missing"
+    );
+    let shown = dir.join("papers/smith2024.pdf");
+    harness.get_by_label(&shown.display().to_string());
+    // The row says it; no dialog interrupts reading the entry to say it.
+    assert_eq!(harness.state().status(), "1 entries");
+    let _ = std::fs::remove_dir_all(dir);
+}
