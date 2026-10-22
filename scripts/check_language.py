@@ -26,11 +26,6 @@ ALLOWLIST_FILES = {
     "scripts/check_language.py": "this script matches CJK by definition",
 }
 
-# Locale catalogues are the translation data, not prose about the code.
-ALLOWLIST_DIRS = {
-    "locales": "locale catalogues hold the translated strings",
-}
-
 CODE_SUFFIXES = {".rs", ".toml", ".py", ".sh", ".yml"}
 DOC_SUFFIXES = {".md", ".rst"}
 
@@ -92,9 +87,6 @@ def test_module_lines(lines: list[str]) -> set[int]:
 
 def is_allowlisted(rel: str) -> bool:
     if rel in ALLOWLIST_FILES:
-        return True
-    parts = rel.split("/")
-    if any(d in parts for d in ALLOWLIST_DIRS):
         return True
     return any(rel.startswith(p) for p in SKIP_PREFIXES)
 

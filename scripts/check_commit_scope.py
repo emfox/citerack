@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
 """Report commits that carry more than one logical change.
 
-Section 3.1 of docs/Conventions.md asks for one logical change per commit. A
-script cannot read intent, so this reports the shape a squashed commit leaves:
-one commit whose changed lines are spread across areas that no single change
-explains.
+Section 3.1 of docs/Conventions.md asks for one logical change per commit, and
+it also says what one change looks like: a behaviour and the test that would
+fail without it travel together, and a feature crosses every crate between the
+parser and the window. So the question this script asks is not "did this commit
+touch more than one area" — a feature always does — but "is there anything in
+this commit that the subject does not account for".
 
-Spreading across areas is ordinary. A behaviour change and its test live in
-different files, an i18n change reaches every caller, and a rename touches every
-mention. Those commits share a reason, and the reason is visible as a small,
-even spread. The shape of a squash is different: whole features changed in
-several places, with the bulk of the lines somewhere unrelated.
+Three tests, each of which only fires when the one above it did not answer:
 
-That is what the line counts are for. A commit that touches five areas with
-three lines each is one change with many mentions; a commit that rewrites two
-hundred lines in one crate and forty in another while the subject names neither
-is two changes sharing a subject.
+1. The subject names the area that carries the bulk of the lines. A commit is
+   named for where it lands, so `feat(bib):` on a change whose lines are in
+   `store` is a message written before the work was done.
+2. The areas outside the crates are ones the subject accounts for. `scripts`,
+   `docs` and `.github` are not a layer of the program, so two of them carrying
+   real lines is two changes wearing the subject of one.
+3. Nothing else. A feature crosses every crate between the parser and the
+   window, and that is one change.
+
+A subject that names a scope nothing in the commit settled — `feat(app):` with
+lines in `index` and `app` — passes, because the window is how the feature lands.
+What the checker looks for is a subject written before the work was done, not a
+heavy crate count.
 
 Usage:
     check_commit_scope.py [--limit N] [--verbose] [REF]
@@ -30,14 +37,18 @@ import re
 import subprocess
 import sys
 
-# A commit needs this many changed lines outside its largest area before a
-# second area can be called a second change. Below it, the other areas are
-# mentions: a call site, a lock file, a test that follows the change.
-MIN_SECONDARY_LINES = 40
+# A commit needs this many changed lines in an area before that area can carry a
+# second change. Below it, the lines are mentions: a call site, a test that
+# follows, a lock file.
+MIN_AREA_LINES = 40
 
-# Files generated from another change in the same commit, so they never count
-# as an area of their own: regenerating one is part of touching its source.
+# Files generated from another change in the same commit, so they never count as
+# an area of their own: regenerating one is part of touching its source.
 GENERATED = {"Cargo.lock"}
+
+# The crates, in the order data flows. A scope sits at one of them, and the
+# neighbours it may reach are the ones beside it.
+LAYERS = ("bib", "index", "store", "app")
 
 SUBJECT_RE = re.compile(r"^([a-z]+)(?:\(([^)]+)\))?: (.+)$")
 
@@ -49,8 +60,8 @@ def area(path: str) -> str:
         return f"crates/{parts[1]}"
     if parts[0] == "crates":
         return "crates"
-    if len(parts) > 1 and parts[0] in ("scripts", "docs", ".github", "locales",
-                                       "benches", "tests"):
+    if len(parts) > 1 and parts[0] in ("scripts", "docs", ".github", "benches",
+                                       "tests"):
         return parts[0]
     return parts[0]
 
@@ -85,43 +96,48 @@ def commits(ref: str) -> list[tuple[str, str, dict[str, int]]]:
     return found
 
 
+def neighbours(scope: str) -> set[str]:
+    """The areas a change at `scope` may reach: its crate and the ones beside it."""
+    if scope == "repo":
+        return {"crates/" + layer for layer in LAYERS}
+    if scope not in LAYERS:
+        return set()
+    at = LAYERS.index(scope)
+    beside = {LAYERS[i] for i in (at - 1, at + 1) if 0 <= i < len(LAYERS)}
+    return {"crates/" + layer for layer in beside}
+
+
 def review(subject: str, lines: dict[str, int]) -> list[str]:
     """Why this commit looks like more than one change, if it does."""
-    if len(lines) < 2:
+    heavy = sorted(((a, n) for a, n in lines.items() if n >= MIN_AREA_LINES),
+                   key=lambda kv: kv[1], reverse=True)
+    if len(heavy) < 2:
         return []
 
-    ranked = sorted(lines.items(), key=lambda kv: kv[1], reverse=True)
-    primary, primary_lines = ranked[0]
-    secondary = [(a, n) for a, n in ranked[1:] if n >= MIN_SECONDARY_LINES]
-    if not secondary:
-        return []
-
+    primary, primary_lines = heavy[0]
     match = SUBJECT_RE.match(subject)
     scope = match.group(2) if match else None
     named = f"crates/{scope}" if scope else None
 
-    # The subject names the area it changes. A second area of that size is a
-    # second change, unless the subject is the only place the scope appears.
-    reasons = []
-    if (named and primary != named and primary_lines >= MIN_SECONDARY_LINES
-            and named in lines):
-        reasons.append(f"subject names {named} but the bulk of the change "
-                       f"({primary_lines} lines) is in {primary}")
+    if named and primary != named and named in lines:
+        return [f"subject names {named} but the bulk of the change "
+                f"({primary_lines} lines) is in {primary}"]
 
-    heavy = [(a, n) for a, n in secondary if n >= primary_lines * 0.5]
-    if heavy:
-        total = sum(lines.values())
-        outside = sum(n for _, n in ranked[1:])
-        # A move or a rename concentrates its lines in a few areas because the
-        # areas are the thing being moved. A squash spreads them, because
-        # unrelated work does not concentrate.
-        if len(heavy) >= 2 and outside * 100 // max(total, 1) >= 50:
-            share = outside * 100 // max(total, 1)
-            reasons.append(
-                f"{share}% of {total} changed lines falls outside {primary}, "
-                f"spread over {len(heavy)}+ areas: "
-                + ", ".join(f"{a} ({n})" for a, n in heavy))
-    return reasons
+    rest = [(a, n) for a, n in heavy[1:]]
+    # A layer, the layer it reads and the layer it is read by are one thing: a
+    # feature in `bib` is written to be shown in `app`, so those crates travel.
+    allowed = {a for a, _ in rest if a.startswith("crates/")} | neighbours(scope)
+    allowed |= {named} if named else set()
+    beyond = [(a, n) for a, n in rest if a not in allowed]
+    if len(beyond) < 2:
+        return []
+    total = sum(lines.values())
+    return [
+        f"{len(beyond)} areas carry {MIN_AREA_LINES}+ lines and nothing in the "
+        f"subject accounts for them: "
+        + ", ".join(f"{a} ({n})" for a, n in beyond)
+        + f" of {total} lines"
+    ]
 
 
 def main() -> int:

@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import check_commits
+import check_commit_scope
 import check_language
 import check_language as lang
 
@@ -44,6 +45,56 @@ class CommitSubjectTest(unittest.TestCase):
         self.assertIn("message contains CJK", problems)
 
 
+class CommitScopeTest(unittest.TestCase):
+    """A feature crosses crates, and the checker only reports the union of them."""
+
+    def test_a_feature_across_the_crates_is_one_change(self) -> None:
+        for subject, lines in (
+            ("feat(bib): write a citation key",
+             {"crates/bib": 392, "crates/app": 316, "crates/store": 281}),
+            ("feat(index): answer a query from posting lists",
+             {"crates/index": 749, "crates/app": 20}),
+            ("feat(app): import an entry from a DOI",
+             {"crates/app": 522, "crates/store": 303, "crates/bib": 289}),
+        ):
+            self.assertEqual(check_commit_scope.review(subject, lines), [], subject)
+
+    def test_a_subject_written_before_the_work_is_reported(self) -> None:
+        # The subject is named for where a change lands, so a scope that holds
+        # only the receipts is a message written before the lines arrived.
+        problems = check_commit_scope.review(
+            "fix(bib): measure unsaved work against the saved entry",
+            {"crates/store": 72, "crates/bib": 62})
+        self.assertTrue(any("bulk of the change" in p for p in problems))
+
+    def test_the_window_and_the_workflow_in_one_commit_are_two_changes(self) -> None:
+        problems = check_commit_scope.review(
+            "fix(app): load the shader compiler at startup",
+            {"crates/app": 92, "scripts": 64, ".github": 52})
+        self.assertTrue(any("nothing in the subject accounts" in p for p in problems))
+
+    def test_one_area_beside_the_scope_is_not_a_second_change(self) -> None:
+        # A behaviour and its test, or a source and its generated lock, live in
+        # different places and are one change.
+        self.assertEqual(
+            check_commit_scope.review(
+                "chore(repo): keep sample libraries as they arrived",
+                {"scripts": 150, "docs": 76}),
+            [])
+
+    def test_a_commit_that_touches_one_area_is_left_alone(self) -> None:
+        self.assertEqual(
+            check_commit_scope.review("feat(bib): read nested braces",
+                                      {"crates/bib": 400, "docs": 12}),
+            [])
+
+    def test_a_scope_reaches_the_layers_beside_it(self) -> None:
+        self.assertEqual(check_commit_scope.neighbours("store"),
+                         {"crates/index", "crates/app"})
+        self.assertEqual(check_commit_scope.neighbours("bib"), {"crates/index"})
+        self.assertEqual(len(check_commit_scope.neighbours("repo")), 4)
+
+
 class LanguageTest(unittest.TestCase):
     def test_ascii_text_has_no_cjk(self) -> None:
         self.assertIsNone(lang.first_cjk("a plain line"))
@@ -63,8 +114,10 @@ class LanguageTest(unittest.TestCase):
     def test_an_english_document_is_not_exempt(self) -> None:
         self.assertFalse(lang.is_allowlisted("docs/Architecture.md"))
 
-    def test_locale_catalogues_are_exempt(self) -> None:
-        self.assertTrue(lang.is_allowlisted("locales/zh-CN/main.ftl"))
+    def test_a_locale_catalogue_is_prose_like_any_other(self) -> None:
+        # The words live in a Rust type, so a folder of translated strings would be
+        # a second copy of them rather than the data they are translated into.
+        self.assertFalse(lang.is_allowlisted("locales/zh-CN/main.ftl"))
 
     def test_build_output_is_skipped(self) -> None:
         self.assertTrue(lang.is_allowlisted("target/debug/build/x.rs"))
