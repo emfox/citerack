@@ -1,15 +1,57 @@
 # citerack
 
-A reference manager for people whose bibliography outgrew their tool. It opens a
-BibTeX file of a hundred thousand entries in about two seconds, and it never
-rewrites a byte it did not change.
+A BibTeX editor for a `.bib` that has outgrown its tool. It opens a hundred
+thousand entries in about 2.6 s, and it never rewrites a byte it did not change.
 
-The problem it addresses is narrow and concrete: a library that has grown for
-twenty years is a file that a general-purpose tool parses on the thread that
-draws the window, so the window is a white rectangle for as long as the parse
-takes, and the tool has no way to tell the user which of the two is the problem.
-citerack separates those two: the file is read on a worker thread, the index is
-built before the first row is drawn, and the window reports both.
+## Is this for you?
+
+Four questions. Three yeses is a good sign; two is probably enough.
+
+**1. Is your library large?** The figures this tool exists for are the ones past
+fifty thousand entries. Below five thousand, JabRef is richer than this and
+already fast enough for you.
+
+**2. Is the `.bib` file the library, or a copy of it?** citerack edits the file
+directly and keeps no database — no sidecar, no index file, no import step. If
+you edit in a manager that owns a database and export when you compile, this is
+the wrong shape of tool for you.
+
+**3. Do you want the file in version control?** A save here writes back only the
+bytes that changed: editing one title in a 45 974-entry library touched 44 of
+4 936 765 bytes. `git diff` on a `.bib` stays readable. This is the design that
+the rest follows from.
+
+**4. Do you only need the BibTeX file?** There is no PDF library here — a `file`
+field is opened, not managed — no Word or LibreOffice plugin, no sync, no cloud,
+no browser connector. If those are the reasons you use what you use now, they
+are good reasons and this does not replace them.
+
+And three things that are true of this build today: the interface is English
+only, nothing here has been through years of unusual files (see [Where this gets
+it wrong](#where-this-gets-it-wrong)), and it is a one-person project that is
+weeks old.
+
+## Where the time goes
+
+`citerack --open-time` prints the input size beside the timings, so the number
+means something:
+
+```
+$ citerack --open-time your.bib
+file        your.bib
+size        73.60 MiB
+entries     100000
+open_total  1.833 s
+```
+
+(That output is a generated 100 000-entry file on the machine that built 0.2.2;
+a busier core reads the same file in 2.56 s. Compare per-entry cost, not the
+total.)
+
+If you have a library that feels slow — in this or in anything else — that output
+is the most useful thing you can send. The figures, the machine they were taken
+on and the command that re-derives each one are in
+[docs/Performance.md](docs/Performance.md).
 
 ## What it does today
 
@@ -31,16 +73,37 @@ built before the first row is drawn, and the window reports both.
 | Speaks | from one catalogue, so the window is one file away from a second language |
 | Shows | a table with key, type, author, title, year and venue, and a detail pane per entry |
 
-Everything here is measured, and `docs/Performance.md` has the machine and the
-command that re-derives each figure. A real user's 134 352-entry library, attached
-to a bug report about slow scrolling elsewhere, opens in about a second:
+A real user's 134 352-entry library, attached to a bug report about slow
+scrolling elsewhere, opens in about two thirds of a second:
 
-![A library of 134 352 entries, open in 1.26 s](docs/images/large-library.png)
+![A library of 134 352 entries, open in 0.63 s](docs/images/large-library.png)
 
 Bulk editing, importing from a DOI, attachments and the catalogue that a
 translation would be written against all shipped in 0.2. Nothing is open on the
 [roadmap](docs/Roadmap.md), which keeps the ideas that were decided against so the
 same question is not reopened.
+
+## Where this gets it wrong
+
+Kept here rather than in a changelog, because it is the part a stranger should
+read before trusting a number.
+
+- **It was built against two shapes of library, not twenty years of habits.**
+  Everything measured comes from generated files plus two real libraries a user
+  attached to a bug report elsewhere — 45 974 and 134 352 entries, committed at
+  `docs/fixtures/games.zip`. Generated files have uniform fields. Yours probably
+  has a decade of exceptions. Expect to be the one who finds them.
+- **It is conservative about what it does not understand.** A construct the
+  parser does not recognise is read as text and written back unchanged; the file
+  is never silently normalised. The cost is that some files it will refuse to
+  make a change to rather than guess.
+- **It measures itself, and the measurements are on one machine.** The absolute
+  seconds in `docs/Performance.md` come from one shared virtual core. Compare
+  per-entry cost across machines, not total seconds.
+- **The interface is English only.** The strings live in one catalogue and a
+  second language is a file, not a rewrite, but only English exists.
+- **It is a one-person project.** No support contract, no funders, no release
+  cadence. Issues are answered when they are answered.
 
 ## Install
 
