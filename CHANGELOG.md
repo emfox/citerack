@@ -3,7 +3,7 @@
 What a user can do now that they could not before. Each release names the thing;
 `docs/` explains the why.
 
-## 0.2.1 - 22 October 2026
+## 0.2.2 - 22 October 2026
 
 ### Changed
 
