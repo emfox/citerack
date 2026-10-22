@@ -296,9 +296,12 @@ fn files_of(row: &Row) -> Vec<Attachment> {
 /// one is said here, beside the field, rather than as a dialog over the window.
 fn draw_files(ui: &mut Ui, files: &[(Attachment, Found)], indent: f32, outcome: &mut Outcome) {
     for (attachment, found) in files {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.add_space(indent);
             match found {
+                // The path is the label when the field gave the file no name of
+                // its own, and the hover is the whole path either way: a name is
+                // what a reader recognises, and a folder is what they check.
                 Found::File(path) => {
                     let label = if attachment.name.is_empty() {
                         path.file_name()
@@ -318,6 +321,8 @@ fn draw_files(ui: &mut Ui, files: &[(Attachment, Found)], indent: f32, outcome: 
                         ui.weak(&attachment.kind);
                     }
                 }
+                // The path wraps rather than being cut off: a folder a reader
+                // cannot read to the end is not a place they can go and look.
                 Found::Missing(path) => {
                     ui.colored_label(MISSING, "missing");
                     ui.weak(path.display().to_string());

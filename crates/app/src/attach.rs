@@ -23,7 +23,10 @@ pub fn resolve(library: &Path, attachments: &[Attachment]) -> Vec<Found> {
         .iter()
         .map(|attachment| {
             let path = Path::new(&attachment.path);
-            let full = if path.is_absolute() {
+            // A Windows drive is absolute on the machine that wrote it, but not
+            // to `is_absolute` on this one, and joining it would put the library's
+            // folder in front of it.
+            let full = if path.is_absolute() || attachment.path.as_bytes().get(1) == Some(&b':') {
                 path.to_path_buf()
             } else {
                 base.join(path)
