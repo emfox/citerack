@@ -51,6 +51,7 @@ find the table in the middle and the fields on the right without being told.
 | Duplicates N | narrows the table to the entries in a duplicate pair, and back |
 | Key `{author}{year}` | the pattern a generated key follows, read as it is typed |
 | Generate keys | gives every entry the key the Generated column shows |
+| System (dark) / Dark / Light | which theme the window is drawn in; right-aligned, and `System` names the theme it resolves to |
 
 The sort buttons carry `^` or `v` showing the direction. Clicking a different
 field sorts it ascending; clicking the same field again flips the direction.
@@ -61,6 +62,17 @@ Save carries a `*` while an edit is not yet written to the file, and loses it on
 the save returns. There is no confirmation dialog: a save cannot lose an edit,
 because a value that cannot be written where it sits is refused when it is typed
 rather than when it is saved.
+
+The theme switch is three words at the right end of the toolbar. `System` follows
+the desktop and is the state the window opens in; `Dark` and `Light` outrank it
+until `System` is pressed again. The word for `System` carries the theme it
+currently resolves to — `System (dark)`, `System (light)`, or plain `System` when
+the machine reports nothing — because a press that changes nothing visible should
+still read as an answer rather than as a broken control.
+
+When the machine reports no preference at all, `System` is drawn light. A window
+that guesses dark on a light desktop is the one a user blames, and dark is the
+guess that goes wrong on more machines.
 
 `Duplicates N` is disabled when `N` is zero, which is the answer most libraries
 give and the one a user wants to read at a glance. Pressing it shows only the rows
@@ -290,7 +302,7 @@ and the list takes the same three in the same order.
 | `Ctrl`/`Cmd` + `Shift` + `Z`, or `Ctrl` + `Y` | anywhere | put the change back | the `Redo` button |
 | `Down` | table | select the next row | the row itself |
 | `Up` | table | select the previous row | the row itself |
-| `Tab`, `Shift` + `Tab` | anywhere but the detail pane | next or previous control, the facet lists included | the control itself |
+| `Tab`, `Shift` + `Tab` | anywhere but the detail pane | next or previous control, the facet lists and the theme words included | the control itself |
 | `Ctrl`/`Cmd` + `D` | anywhere | put the cursor in the first field of the entry | the first field box |
 | `Tab`, `Shift` + `Tab` | detail pane | next or previous field, wrapping | the fields themselves |
 | `Escape` | detail pane | leave the field box, keeping what was typed | clicking outside it |

@@ -7,6 +7,12 @@ the repository is not listed here.
 
 ### Added
 
+- The window can be light, dark, or whatever the desktop is. Three words at the
+  right end of the toolbar — `System`, `Dark`, `Light` — choose it, and the window
+  opens on `System` so a light desktop gets a light window instead of the black one
+  it used to get. The `System` word says which theme it is currently showing, and
+  a machine that reports no preference is drawn light rather than dark.
+
 - Keys can be written from the fields an entry already holds. A toolbar box takes
   a pattern of `{field}` references — `{author}{year}` unless told otherwise, with
   `:l` and `:u` for case and numbers for how many words and letters — and a

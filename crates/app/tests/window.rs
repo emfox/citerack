@@ -1148,3 +1148,88 @@ fn the_pattern_box_shows_the_setting_the_library_uses() {
         node.role() == Role::TextInput && node.value().as_deref() == Some("{author}{year}")
     });
 }
+
+/// What a machine reports about its own theme, which is what `System` resolves to.
+fn system_theme(harness: &mut Harness<'_, App>, theme: Option<egui::Theme>) {
+    harness.input_mut().system_theme = theme;
+    harness.run();
+}
+
+#[test]
+fn the_window_starts_out_following_the_system() {
+    let mut harness = named();
+    system_theme(&mut harness, Some(egui::Theme::Dark));
+    assert_eq!(
+        harness.state().theme(),
+        egui::ThemePreference::System,
+        "the switch starts where a user expects it: on the system"
+    );
+    assert_eq!(harness.state().drawn_theme(&harness.ctx), egui::Theme::Dark);
+
+    // A machine that switches to light at sunset is followed without a click.
+    system_theme(&mut harness, Some(egui::Theme::Light));
+    assert_eq!(
+        harness.state().drawn_theme(&harness.ctx),
+        egui::Theme::Light,
+        "the system it follows is read again every frame"
+    );
+}
+
+#[test]
+fn a_machine_that_reports_no_theme_is_drawn_light() {
+    let mut harness = named();
+    system_theme(&mut harness, None);
+    assert_eq!(
+        harness.state().drawn_theme(&harness.ctx),
+        egui::Theme::Light,
+        "a window that guesses dark on a light desktop is the one a user blames"
+    );
+    assert_eq!(harness.state().theme(), egui::ThemePreference::System);
+}
+
+#[test]
+fn pressing_light_leaves_the_system_behind() {
+    let mut harness = named();
+    system_theme(&mut harness, Some(egui::Theme::Dark));
+    harness.get_by_label("Light").click();
+    harness.run();
+
+    assert_eq!(harness.state().theme(), egui::ThemePreference::Light);
+    assert_eq!(
+        harness.state().drawn_theme(&harness.ctx),
+        egui::Theme::Light,
+        "a chosen theme outranks the system, in both directions"
+    );
+    assert_eq!(
+        harness.ctx.theme(),
+        egui::Theme::Light,
+        "the context is drawn in the theme the window chose"
+    );
+}
+
+#[test]
+fn pressing_dark_outranks_a_light_system() {
+    let mut harness = named();
+    system_theme(&mut harness, Some(egui::Theme::Light));
+    harness.get_by_label("Dark").click();
+    harness.run();
+
+    assert_eq!(harness.state().drawn_theme(&harness.ctx), egui::Theme::Dark);
+    assert_eq!(harness.ctx.theme(), egui::Theme::Dark);
+}
+
+#[test]
+fn the_system_word_says_which_theme_it_is_showing() {
+    let mut harness = named();
+    system_theme(&mut harness, Some(egui::Theme::Dark));
+    harness.get_by_label("System (dark)");
+
+    // Pressing it after a choice brings the system back rather than being a
+    // fourth state nobody can leave.
+    harness.get_by_label("Light").click();
+    harness.run();
+    harness.get_by_label("System (dark)").click();
+    harness.run();
+    assert_eq!(harness.state().theme(), egui::ThemePreference::System);
+    assert_eq!(harness.state().drawn_theme(&harness.ctx), egui::Theme::Dark);
+}

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use citerack_index::{SortField, SortSpec};
 use citerack_store::{Facet, Session};
-use egui::{Align, Label, Layout, RichText};
+use egui::{Align, Label, Layout, RichText, Theme, ThemePreference};
 use egui_extras::{Column as TableColumn, TableBuilder};
 
 use crate::columns::{Column, entry_at};
@@ -134,6 +134,9 @@ pub struct App {
     shift_tab: bool,
     /// The reason the key pattern in the box cannot be used, shown beside it.
     refusal: String,
+    /// Which theme the window asks the context for, kept here rather than read
+    /// back from it so a frame can be drawn without asking.
+    theme: ThemePreference,
 }
 
 impl App {
@@ -169,6 +172,7 @@ impl App {
             focused_field: None,
             shift_tab: false,
             refusal: String::new(),
+            theme: ThemePreference::System,
         }
     }
 
@@ -288,6 +292,26 @@ impl App {
         self.focus_pattern = true;
     }
 
+    /// Which theme the window is set to follow.
+    pub fn theme(&self) -> ThemePreference {
+        self.theme
+    }
+
+    /// Chooses a theme, as pressing one of the three words in the toolbar does.
+    pub fn set_theme(&mut self, theme: ThemePreference) {
+        self.theme = theme;
+    }
+
+    /// The theme the window is drawn in, which is `System` read out: a machine
+    /// that reports nothing is drawn light rather than dark.
+    pub fn drawn_theme(&self, ctx: &egui::Context) -> Theme {
+        match self.theme {
+            ThemePreference::System => ctx.system_theme().unwrap_or(Theme::Light),
+            ThemePreference::Dark => Theme::Dark,
+            ThemePreference::Light => Theme::Light,
+        }
+    }
+
     /// The row the detail pane is showing.
     pub fn selected(&self) -> Option<usize> {
         self.selected
@@ -381,6 +405,30 @@ impl App {
             self.keys(ui);
             ui.separator();
             self.duplicates_button(ui);
+            self.theme_switch(ui);
+        });
+    }
+
+    /// The three themes as three words, right-aligned where every other
+    /// application puts this switch. `System` says which theme it resolves to, so a
+    /// press that changes nothing visible still reads as an answer.
+    fn theme_switch(&mut self, ui: &mut egui::Ui) {
+        let system = ui.ctx().system_theme();
+        let here = match system {
+            Some(Theme::Dark) => "System (dark)",
+            Some(Theme::Light) => "System (light)",
+            None => "System",
+        };
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            for (theme, label) in [
+                (ThemePreference::Light, "Light"),
+                (ThemePreference::Dark, "Dark"),
+                (ThemePreference::System, here),
+            ] {
+                if ui.selectable_label(self.theme == theme, label).clicked() {
+                    self.theme = theme;
+                }
+            }
         });
     }
 
@@ -920,6 +968,12 @@ impl eframe::App for App {
 impl App {
     /// One frame, without an eframe frame around it, so a test can call it.
     pub fn draw(&mut self, ctx: &egui::Context) {
+        // The theme is set every frame, not once at startup, because a machine
+        // that changes its mind mid-session reports it as input and nothing else
+        // would notice.
+        ctx.set_theme(ThemePreference::System);
+        ctx.options_mut(|options| options.fallback_theme = Theme::Light);
+        ctx.set_theme(self.theme);
         self.poll_pending(ctx);
         self.settle_query(ctx);
         self.shortcuts(ctx);
