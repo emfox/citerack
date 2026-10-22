@@ -642,7 +642,7 @@ dependencies = [
 
 [[package]]
 name = "citerack"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "accesskit",
  "citerack-bib",
@@ -663,14 +663,14 @@ dependencies = [
 
 [[package]]
 name = "citerack-bib"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "memchr",
 ]
 
 [[package]]
 name = "citerack-index"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "citerack-bib",
  "memchr",
@@ -679,7 +679,7 @@ dependencies = [
 
 [[package]]
 name = "citerack-store"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "citerack-bib",
  "citerack-index",

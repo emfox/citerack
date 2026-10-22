@@ -3,7 +3,11 @@
 What a user can do now that they could not before. Each release names the thing;
 `docs/` explains the why.
 
-## Unreleased
+## 0.2.0 - 22 October 2026
+
+What a reader who filed papers from a PDF, or edited the same field across a
+hundred entries, could not do before. Nothing a saved file carries has moved: an
+edit still writes back only the bytes of the field it changed.
 
 ### Added
 

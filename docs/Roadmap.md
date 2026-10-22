@@ -14,8 +14,9 @@ Anything decided against stays in §2 so the same question is not reopened.
 Rows are ordered by how many users would notice, not by how interesting the work
 is.
 
-Nothing is open. The three rows the roadmap held are shipped: attachments, bulk
-edits, and an import from an identifier, each in the version it was written for.
+Nothing is open. The three rows the roadmap held are shipped in 0.2 — attachments,
+bulk edits, and an import from an identifier — together with the catalogue that
+makes a second language a file rather than a rewrite of the window.
 
 The one thing a translator would still need is a second `impl` of the keys in
 `crates/app/src/catalogue.rs` and a setting that chose it. That is deliberately not

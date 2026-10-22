@@ -37,8 +37,10 @@ to a bug report about slow scrolling elsewhere, opens in about a second:
 
 ![A library of 134 352 entries, open in 1.26 s](docs/images/large-library.png)
 
-Bulk editing, importing from a DOI, attachments and a translated interface are on
-the [roadmap](docs/Roadmap.md).
+Bulk editing, importing from a DOI, attachments and the catalogue that a
+translation would be written against all shipped in 0.2. Nothing is open on the
+[roadmap](docs/Roadmap.md), which keeps the ideas that were decided against so the
+same question is not reopened.
 
 ## Install
 
