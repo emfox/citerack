@@ -10,6 +10,13 @@ on:
 permissions:
   contents: write
 
+# A tag that is moved and pushed again asks for two builds of the same version, and
+# two runs uploading to one release is a race the later one loses. Only the newest
+# push of a given tag is allowed to finish.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Both binaries are built on Linux, which is the host the project is developed
   # on. A Windows job would link with a different toolchain and a different SDK,
@@ -109,21 +116,25 @@ jobs:
           # A version section ends at the next one, and the file ends after it.
           awk '/^## /{n++} n==1' CHANGELOG.md |
             sed '1s/^## /# citerack /' > RELEASE.md
+          # The notes say what a user gains, which is `CHANGELOG.md` up to its
+          # first release; this says which commit built the files and how to check
+          # them. Both go in one file because `body` and `body_path` cannot be
+          # given together: the action takes the one, silently dropping the other.
+          {
+            echo
+            echo "Built from ${{ github.sha }} by the release workflow."
+            echo
+            echo 'Each binary has a `.sha256` beside it. Verify with:'
+            echo
+            echo '    sha256sum -c citerack.sha256                     # Linux'
+            echo '    sha256sum -c citerack.exe.sha256                 # Linux or WSL'
+            echo '    Get-FileHash citerack.exe -Algorithm SHA256      # Windows'
+          } >> RELEASE.md
           head -5 RELEASE.md
+          echo ...
+          tail -8 RELEASE.md
 
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           body_path: RELEASE.md
-          # The notes say what a user gains, which is `CHANGELOG.md` up to its
-          # first release; the workflow says which commit built the files.
-          append_body: true
-          generate_release_notes: false
-          body: |
-            Built from ${{ github.sha }} by the release workflow.
-
-            Each binary has a `.sha256` beside it. Verify with:
-
-                sha256sum -c citerack.sha256                     # Linux
-                sha256sum -c citerack.exe.sha256                 # Linux or WSL
-                Get-FileHash citerack.exe -Algorithm SHA256      # Windows
