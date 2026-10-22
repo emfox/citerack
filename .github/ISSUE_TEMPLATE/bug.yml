@@ -1,0 +1,59 @@
+name: Something is wrong
+description: The window closed, a file was read wrong, or a number was slower than you expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before a library is attached: a `.bib` file often carries unpublished
+        work. Please check what is in it first.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what the window did instead.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `citerack --version`, or the name of the file you downloaded.
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: The operating system and its version, and whether the desktop is X11 or Wayland.
+    validations:
+      required: true
+
+  - type: textarea
+    id: numbers
+    attributes:
+      label: Numbers, if it is about speed
+      description: |
+        These run without a display and print the input size beside the result, so
+        a figure means something:
+
+        ```
+        citerack --open-time library.bib
+        citerack --search "zhou 2024" library.bib
+        citerack --index-report library.bib
+        ```
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Anything the terminal printed
+      description: Run `citerack library.bib` from a terminal and paste what appears.
+      render: shell
+    validations:
+      required: false

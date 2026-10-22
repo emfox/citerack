@@ -1,0 +1,28 @@
+name: Something it does not do
+description: A feature you need, or a library it handles badly.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `docs/Roadmap.md` lists what is already planned and what was decided
+        against. Worth reading first: an idea that is already there is better
+        served by a comment on why it is not done yet.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you cannot do
+      description: |
+        The task, not the feature. "I cannot tell which of these 400 entries I
+        have already read" is more useful than "add a read flag".
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do instead
+      description: The workaround, and what it costs you.
+    validations:
+      required: false
