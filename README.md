@@ -35,14 +35,23 @@ the [roadmap](docs/Roadmap.md).
 
 Every tagged release publishes a Linux binary and a Windows one, each with a
 `.sha256` beside it. The newest is
-[`v0.1.1`](https://github.com/emfox/citerack/releases/latest). From a checkout
-instead — on Debian or Ubuntu the window stack needs `libxkbcommon-x11-dev` and
-`libfontconfig1-dev` first, and nothing else:
+[`v0.1.1`](https://github.com/emfox/citerack/releases/latest). Download it and run
+it; on a Linux desktop nothing has to be installed first, because the binary links
+only `libc`, `libm` and `libgcc_s` and loads the window stack — X11, Wayland, GL,
+Vulkan — from whatever the desktop already has.
+
+From a checkout instead. Beyond a Rust toolchain and a C linker, nothing has to be
+installed: every window library the build touches — X11, Wayland, xkbcommon, GL,
+EGL — is reached through a `dlopen` feature, so nothing is probed or linked while
+compiling.
 
 ```bash
 cargo build --release -p citerack
 ./target/release/citerack library.bib
 ```
+
+The binary that comes out links `libc`, `libm` and `libgcc_s` and nothing else;
+`scripts/check_linux_links.sh` fails the build if that ever stops being true.
 
 On Windows the build targets MSVC with the runtime linked statically, so the exe
 needs no redistributable. It has no signature, so Windows may ask before running

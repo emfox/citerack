@@ -122,6 +122,17 @@ CHECKS: tuple[Check, ...] = (
         ),
         needs=("cargo", "cargo-xwin", "llvm-objdump"),
     ),
+    # The Linux binary promises a reader that nothing has to be installed beside
+    # it, which holds only while the window stack stays a run-time load.
+    Check(
+        "linux-links",
+        "rust",
+        (
+            ("cargo", "build", "--release", "-p", "citerack"),
+            ("bash", "scripts/check_linux_links.sh", "target/release/citerack"),
+        ),
+        needs=("cargo", "readelf"),
+    ),
     # The engine crates are timed by a benchmark that runs headless, so a
     # regression is visible without opening a window.
     Check(
@@ -165,6 +176,10 @@ def precondition(name: str) -> tuple[bool, str]:
     if name == "llvm-objdump":
         if shutil.which("llvm-objdump") is None:
             return False, "llvm-objdump is not on PATH (apt install llvm)"
+        return True, ""
+    if name == "readelf":
+        if shutil.which("readelf") is None:
+            return False, "readelf is not on PATH (apt install binutils)"
         return True, ""
     raise ValueError(f"unknown precondition {name!r}")
 

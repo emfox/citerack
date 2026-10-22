@@ -14,11 +14,12 @@ jobs:
           # The history checks read every commit, which a shallow clone loses.
           fetch-depth: 0
 
-      - name: Install the window development packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon-x11-dev libfontconfig1-dev
-
+      # Nothing is installed here on purpose. Every window library this build
+      # touches — X11, Wayland, xkbcommon, GL, EGL — is reached through a `dlopen`
+      # feature, so no probe runs and no header is read while compiling. Building
+      # on a bare runner is a property worth keeping, and `linux-links` in
+      # `scripts/check_all.py` checks that the binary still binds only libc, libm
+      # and libgcc_s.
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
