@@ -6,8 +6,11 @@ mod attach;
 mod batch;
 mod columns;
 mod detail;
+mod import;
+mod lookup;
 mod ui;
 #[cfg(windows)]
 pub mod windows;
 
+pub use lookup::{Lookup, State as LookupState};
 pub use ui::{App, falls_back, run};

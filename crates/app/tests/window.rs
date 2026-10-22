@@ -1428,3 +1428,106 @@ fn entering_a_batch_that_nobody_takes_says_why_and_keeps_the_typing() {
     );
     assert!(!harness.state().session().unwrap().is_edited());
 }
+
+/// A record as a service would hand it back, so the filing half of an import is
+/// tested without a request going out.
+fn record() -> citerack_bib::Entry {
+    use citerack_bib::{Delimiter, Entry, EntryKind, Field, FieldName};
+    let field = |name: &str, value: &str| Field {
+        name_raw: name.into(),
+        name: FieldName::new(name),
+        value: value.into(),
+        delimiter: Delimiter::Braces,
+    };
+    Entry {
+        kind: EntryKind::new("Article"),
+        key: "".into(),
+        fields: vec![
+            field("author", "Doe, Jane"),
+            field("title", "Imported Study"),
+            field("year", "2021"),
+            field("doi", "10.1000/xyz"),
+        ],
+    }
+}
+
+#[test]
+fn the_import_button_opens_a_box_that_asks_for_an_identifier() {
+    let mut harness = harness(App::with_session(session()));
+    harness.get_by_label("Import").click();
+    harness.run();
+
+    assert!(harness.state().importing());
+    harness.get_by_label("Paste a DOI, an arXiv id, or the link either one is shown at.");
+    harness.get_by_label("Look up");
+    harness.run();
+}
+
+#[test]
+fn a_record_the_service_sent_can_be_filed_and_the_table_grows_by_one() {
+    let mut harness = harness(App::with_session(session()));
+    harness.state_mut().offer(record());
+    harness.run();
+
+    assert!(harness.state().status().is_empty() || !harness.state().status().starts_with("Import"));
+    harness.get_by_label("Add to the library").click();
+    harness.run();
+
+    let app = harness.state();
+    assert!(!app.importing(), "the box closes once the entry is in");
+    assert_eq!(app.session().unwrap().len(), 3);
+    assert_eq!(app.status(), "Imported doe2021");
+    assert_eq!(
+        app.session().unwrap().library().entries()[2].key.as_ref(),
+        "doe2021"
+    );
+}
+
+#[test]
+fn a_filed_entry_can_be_taken_straight_back_out() {
+    let mut harness = harness(App::with_session(session()));
+    harness.state_mut().offer(record());
+    harness.run();
+    harness.get_by_label("Add to the library").click();
+    harness.run();
+    assert_eq!(harness.state().session().unwrap().len(), 3);
+
+    harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    harness.run();
+    assert_eq!(harness.state().session().unwrap().len(), 2);
+    assert!(harness.state().status().contains("an import"));
+}
+
+#[test]
+fn an_identifier_that_names_nothing_says_so_without_asking_anyone() {
+    let mut harness = harness(App::with_session(session()));
+    harness.state_mut().type_identifier("nature");
+    harness.run();
+    harness.get_by_label("Look up").click();
+    harness.run();
+
+    match harness.state().lookup_state() {
+        citerack::LookupState::Failed(why) => {
+            assert_eq!(why, "nature is neither a DOI nor an arXiv id")
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    assert!(harness.state().session().is_some_and(|s| !s.is_edited()));
+}
+
+#[test]
+fn a_key_the_library_already_holds_is_moved_out_of_the_way() {
+    let mut harness = harness(App::with_session(session()));
+    harness.state_mut().offer(record());
+    harness.run();
+    harness.get_by_label("Add to the library").click();
+    harness.run();
+
+    let mut second = record();
+    second.fields[1].value = "A Second Study".into();
+    harness.state_mut().offer(second);
+    harness.run();
+    harness.get_by_label("Add to the library").click();
+    harness.run();
+    assert_eq!(harness.state().status(), "Imported doe2021a");
+}

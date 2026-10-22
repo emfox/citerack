@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use citerack_bib::{
-    EditError, EntryId, EntryState, Library, ParseError, ParseOptions, Pattern, PatternError,
-    WriteOptions, parse_str, unique, write_str,
+    EditError, Entry, EntryId, EntryState, Library, ParseError, ParseOptions, Pattern,
+    PatternError, WriteOptions, parse_str, unique, write_str,
 };
 use citerack_index::{Pair, SearchOptions, SearchResult, Searcher, SortKey, SortSpec};
 
@@ -202,10 +202,24 @@ pub struct Session {
 /// One change: a run of edits with no pause long enough to be a separate step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
-    /// The entries as they were before the change.
+    /// The entries as they were before the change, which is empty for an import.
     pub before: Vec<EntryState>,
     /// The entries as the change left them.
     pub after: Vec<EntryState>,
+}
+
+impl Change {
+    /// The row an import added, when the change was one: a change that recorded
+    /// nothing to go back to can only have brought an entry in.
+    pub fn imported(&self) -> Option<usize> {
+        if !self.before.is_empty() {
+            return None;
+        }
+        match self.after.as_slice() {
+            [state] => Some(state.entry),
+            _ => None,
+        }
+    }
 }
 
 /// What went wrong while opening or saving.
@@ -537,6 +551,76 @@ impl Session {
         Ok(())
     }
 
+    /// Files an entry the file did not hold, or says why it cannot, and keys it so
+    /// that it names nothing already in the library. The whole import is one undo
+    /// step, and a refused entry leaves the library untouched.
+    pub fn import(&mut self, entry: Entry) -> Result<usize, EditError> {
+        self.settle_all();
+        let key = self.key_for(&entry.key);
+        let mut entry = entry;
+        entry.key = key.into();
+        let id = self.library.append(entry)?;
+        let row = id.0;
+        self.after_append(row);
+        Ok(row)
+    }
+
+    /// A key that names nothing yet: the one asked for, or that one and a letter,
+    /// which is how a second paper by the same author in the same year is filed.
+    pub fn key_for(&self, wanted: &str) -> String {
+        if self.library.keyed(wanted) == 0 {
+            return wanted.to_owned();
+        }
+        for suffix in b'a'..=b'z' {
+            let candidate = format!("{wanted}{}", suffix as char);
+            if self.library.keyed(&candidate) == 0 {
+                return candidate;
+            }
+        }
+        // A library that already holds every letter of this key takes a number,
+        // which a reader will never see unless they imported 27 of one year.
+        for suffix in 27..=999 {
+            let candidate = format!("{wanted}{suffix}");
+            if self.library.keyed(&candidate) == 0 {
+                return candidate;
+            }
+        }
+        wanted.to_owned()
+    }
+
+    /// Puts the sort key, the index and the table back after a row arrived. An
+    /// import is rare, so the whole index is rebuilt rather than patched.
+    fn after_append(&mut self, row: usize) {
+        self.duplicates = None;
+        self.duplicate_keys = None;
+        self.stale = true;
+        self.sort_keys.push(SortKey::of(&self.library, row));
+        self.rows.push(row);
+        self.refresh_view();
+    }
+
+    /// Files an entry an undo took back, so a redo can bring it in again.
+    fn restored_import(&mut self, state: &EntryState) -> Option<usize> {
+        let id = self.library.append(state.model.clone()).ok()?;
+        let row = id.0;
+        self.after_append(row);
+        Some(row)
+    }
+
+    /// Takes back the entry the last undo reversed, which is only ever the last
+    /// row since nothing follows an import.
+    fn unimport(&mut self, row: usize) {
+        if self.library.unappend(EntryId(row)).is_err() {
+            return;
+        }
+        self.sort_keys.truncate(row);
+        self.rows.retain(|held| *held != row);
+        self.duplicates = None;
+        self.duplicate_keys = None;
+        self.stale = true;
+        self.refresh_view();
+    }
+
     /// Adds a field at the end of an entry.
     pub fn add_field(&mut self, entry: usize, name: &str, value: &str) -> Result<(), EditError> {
         if self.library.append_field(EntryId(entry), name, value)? {
@@ -708,7 +792,10 @@ impl Session {
         self.settle_all();
         let change = self.past.pop()?;
         let what = self.describe(&change);
-        if self.library.restore(&change.before).is_err() {
+        if let Some(row) = change.imported() {
+            // An import left no state to put back, since the row was not there.
+            self.unimport(row);
+        } else if self.library.restore(&change.before).is_err() {
             self.past.push(change);
             return None;
         }
@@ -726,14 +813,33 @@ impl Session {
         self.settle_all();
         let change = self.future.pop()?;
         let what = self.describe(&change);
-        if self.library.restore(&change.after).is_err() {
+        if change.imported().is_some() {
+            // An import that was taken back is put back by filing the entry again,
+            // which is the only way a row that never had bytes can return.
+            let row = self.restored_import(&change.after[0]);
+            match row {
+                Some(row) => {
+                    let state = self.library.state_of(row);
+                    self.past.push(Change {
+                        before: Vec::new(),
+                        after: state.into_iter().collect(),
+                    });
+                    Some(what)
+                }
+                None => {
+                    self.future.push(change);
+                    None
+                }
+            }
+        } else if self.library.restore(&change.after).is_err() {
             self.future.push(change);
-            return None;
+            None
+        } else {
+            self.library.seal();
+            self.refreshed(&change.after);
+            self.past.push(change);
+            Some(what)
         }
-        self.library.seal();
-        self.refreshed(&change.after);
-        self.past.push(change);
-        Some(what)
     }
 
     /// Whether there is a change to reverse.
@@ -752,6 +858,19 @@ impl Session {
     pub fn settle(&mut self) {
         let before = self.library.pending_before();
         if before.is_empty() {
+            // An entry that arrived has no state to go back to, so it is recorded
+            // as an empty before, which is what makes an import undoable.
+            if let Some(state) = self
+                .library
+                .newest_added()
+                .and_then(|row| self.library.state_of(row))
+            {
+                self.push(Change {
+                    before: Vec::new(),
+                    after: vec![state],
+                });
+                return;
+            }
             return;
         }
         let after: Vec<EntryState> = before
@@ -805,7 +924,8 @@ impl Session {
             return "an edit to several entries";
         }
         let Some(row) = rows.first() else {
-            return "an edit";
+            // Nothing here came from the file, so the change was an entry arriving.
+            return "an import";
         };
         let before = change
             .before
@@ -908,6 +1028,12 @@ impl Session {
             return;
         }
         self.searcher.settle(query);
+    }
+
+    /// The text a save would write, without writing it, which is what a test and a
+    /// preview both want.
+    pub fn text(&self) -> String {
+        write_str(&self.library, &WriteOptions::Preserve)
     }
 
     /// Writes to another path, leaving the original untouched; the default

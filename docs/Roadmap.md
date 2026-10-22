@@ -17,7 +17,6 @@ is.
 | Item | What a user gains | Done when |
 | --- | --- | --- |
 | UI strings in one catalogue | a window that speaks a language other than English | every word the window shows comes from one file, and a second language file changes the window without a rebuild |
-| Import from DOI and arXiv | typing an identifier instead of an entry | an identifier produces a complete entry, and a failed lookup leaves the library untouched |
 
 The catalogue row is what a translated window needs, and what the tree does not
 have: the strings are inline in `crates/app/src` and there is no `locales/`

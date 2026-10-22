@@ -10,3 +10,4 @@ description = "Search and sort structures over a parsed bibliography, built once
 [dependencies]
 citerack-bib.workspace = true
 memchr.workspace = true
+serde_json.workspace = true

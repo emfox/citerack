@@ -3,7 +3,7 @@
 //! the unit a save writes and an entry is at most a few kilobytes.
 
 use crate::edit::{Layout, is_key_end, new_field, render, usable};
-use crate::model::Entry;
+use crate::model::{Delimiter, Entry};
 use crate::parse::{ParseOptions, parse_str};
 
 /// A stable handle to one entry, valid for the library that produced it.
@@ -445,6 +445,97 @@ impl Library {
             Some(text) => Some(text.into_boxed_str()),
             None => render(model).map(String::into_boxed_str),
         }
+    }
+
+    /// Appends an entry the file did not hold, which a save writes after the last
+    /// entry and before any trailing comment. Returning an `EntryId`.
+    pub fn append(&mut self, entry: Entry) -> Result<EntryId, EditError> {
+        if entry.key.is_empty() || entry.key.bytes().any(is_key_end) {
+            return Err(EditError::BadKey);
+        }
+        if entry
+            .fields
+            .iter()
+            .any(|field| !usable(&field.name_raw, &field.value))
+        {
+            return Err(EditError::BadName);
+        }
+        if render(&entry).is_none() {
+            return Err(EditError::Unwritable);
+        }
+        let id = EntryId(self.entries.len());
+        self.entries.push(entry);
+        self.spans.push(None);
+        self.layouts.push(None);
+        self.changed.push(None);
+        self.unsaved.push(true);
+        self.saved.push(None);
+        Ok(id)
+    }
+
+    /// Takes back an entry `append` added, which is what undoing that step does.
+    /// Only the last entry can go, since that is the only one nothing follows.
+    pub fn unappend(&mut self, id: EntryId) -> Result<(), EditError> {
+        if id.0 + 1 != self.entries.len() || self.spans.last().copied().flatten().is_some() {
+            return Err(EditError::Absent);
+        }
+        self.entries.pop();
+        self.spans.pop();
+        self.layouts.pop();
+        self.changed.pop();
+        self.unsaved.pop();
+        self.saved.pop();
+        self.before.retain(|(row, ..)| *row != id.0);
+        Ok(())
+    }
+
+    /// Whether this entry came from `append` rather than from the file, which is
+    /// the one thing a caller has to know before editing it.
+    pub fn is_added(&self, id: EntryId) -> bool {
+        self.spans.get(id.0).is_some_and(Option::is_none)
+    }
+
+    /// Sets a field on an entry the file did not hold: one `append` added, which has
+    /// no source bytes for the in-place path to replace.
+    pub fn set_added_value(
+        &mut self,
+        id: EntryId,
+        field: usize,
+        value: &str,
+    ) -> Result<(), EditError> {
+        if !self.is_added(id) {
+            return Err(EditError::Absent);
+        }
+        let current = self.entries.get(id.0).ok_or(EditError::Absent)?;
+        let mut next = current.clone();
+        let held = next.fields.get_mut(field).ok_or(EditError::Absent)?;
+        if !usable(&held.name_raw, value) {
+            return Err(EditError::BadName);
+        }
+        held.value = value.into();
+        held.delimiter = Delimiter::Braces;
+        if self.entries[id.0] == next {
+            return Ok(());
+        }
+        self.entries[id.0] = next;
+        self.unsaved[id.0] = true;
+        Ok(())
+    }
+
+    /// The last entry `append` added, which is the one an undo takes back.
+    pub fn newest_added(&self) -> Option<usize> {
+        let row = self.entries.len().checked_sub(1)?;
+        self.is_added(EntryId(row)).then_some(row)
+    }
+
+    /// The rows `append` added, which a save writes after everything it copied.
+    pub fn added_rows(&self) -> Vec<usize> {
+        self.spans
+            .iter()
+            .enumerate()
+            .filter(|(_, span)| span.is_none())
+            .map(|(row, _)| row)
+            .collect()
     }
 
     /// Refuses bytes that would not read back as the entry they stand for.

@@ -148,7 +148,7 @@ fn a_search_and_a_facet_narrow_the_same_table() {
     session.toggle_facet(Facet::Author, "Smith");
     assert_eq!(
         session.order(),
-        [],
+        <&[usize]>::default(),
         "a surname the query did not find leaves nothing on the table"
     );
 }

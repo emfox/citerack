@@ -29,19 +29,48 @@ pub fn write_str(library: &Library, options: &WriteOptions) -> String {
 /// a save changes only what was typed.
 fn preserve(library: &Library) -> String {
     let replaced = library.replacements();
+    let mut out = String::with_capacity(library.source().len());
     if replaced.is_empty() {
-        return library.source().to_owned();
+        out.push_str(library.source());
+    } else {
+        let source = library.source();
+        let mut copied = 0usize;
+        for (span, text) in replaced {
+            out.push_str(&source[copied..span.start]);
+            out.push_str(text);
+            copied = span.end;
+        }
+        out.push_str(&source[copied..]);
     }
-    let source = library.source();
-    let mut out = String::with_capacity(source.len());
-    let mut copied = 0usize;
-    for (span, text) in replaced {
-        out.push_str(&source[copied..span.start]);
-        out.push_str(text);
-        copied = span.end;
-    }
-    out.push_str(&source[copied..]);
+    added(library, &mut out);
     out
+}
+
+/// Writes the entries `append` added, each on its own lines at the end of the file,
+/// which is where a reader looks for one they imported and cannot lose another.
+fn added(library: &Library, out: &mut String) {
+    for row in library.added_rows() {
+        let Some(entry) = library.entries().get(row) else {
+            continue;
+        };
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        let _ = writeln!(out, "@{}{{{},", entry.kind, entry.key);
+        for field in &entry.fields {
+            let _ = writeln!(out, "  {} = {},", field.name_raw, write_value(field));
+        }
+        out.push_str("}\n");
+    }
+}
+
+/// A field's value inside the delimiters it is held in.
+fn write_value(field: &crate::model::Field) -> String {
+    match field.delimiter {
+        crate::model::Delimiter::Braces => format!("{{{}}}", field.value),
+        crate::model::Delimiter::Quotes => format!("\"{}\"", field.value),
+        crate::model::Delimiter::Bare => field.value.to_string(),
+    }
 }
 
 fn canonical(library: &Library) -> String {

@@ -153,7 +153,36 @@ The field name is typed rather than picked from a list. A list would be a schema
 and the parser deliberately has none: the file may hold any field, so the box
 accepts any name and lets the entry say whether it can hold the value.
 
-## 9. Portability
+## 9. Why a lookup is a thread and not a promise
+
+The window draws sixty frames a second whether or not a service has answered, so
+`Lookup` owns the request rather than the frame doing: `ask` spawns a thread and
+leaves a `Receiver` behind, and `read` tries it once per frame. A lookup that takes
+eight seconds costs eight seconds of a spinner, not eight seconds of a frozen
+window, and closing the box drops the receiver, which is how a cancelled request
+is cancelled — the thread finds nobody to answer and exits.
+
+The two readers are in `citerack-index` and touch no socket: `from_crossref` takes
+the parsed JSON and `from_arxiv` takes the Atom text. That is what lets both be
+held to fixtures in unit tests rather than to a live service, which decides what a
+record with no title does before a reader ever meets one. The identifier parser is
+there for the same reason: a DOI pasted as `https://doi.org/10.1038/nphys1170`,
+with a trailing full stop, or as `doi:10.1038/NPHYS1170`, is one identifier and
+should cost no request to recognise.
+
+TLS is `rustls` rather than native TLS. A reader on a machine without OpenSSL, or
+with a schannel that a proxy has bent, should still be able to import a paper, and
+the alternative would add a library to the binary that `check_linux_links.sh`
+promises it does not link. Nothing else in the tree needed changing: the check
+still passes, and the binary still links libc, libm and the unwinder.
+
+An imported entry is not an edit. It has no bytes in the file to replace, so
+`Library::append` gives it a row with no span, `write_str` puts those rows after
+everything it copied, and an undo of that step drops the row rather than restoring
+text. That is why `Change` records an empty `before` for an import — the honest
+description of a change whose subject was not there.
+
+## 10. Portability
 
 `eframe` with `glow` and no default features is the smallest window that runs on
 X11, Wayland and the three desktop platforms without a system toolkit of its

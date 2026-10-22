@@ -17,6 +17,9 @@ egui_extras = "0.32"
 # The platform dialog: the AppKit panel on macOS, a COM dialog on Windows, and
 # on Linux whichever of the desktop portal or zenity the host offers.
 rfd = "0.15"
+# One lookup, on a thread of its own; the TLS is `rustls` so no OpenSSL is needed.
+ureq.workspace = true
+serde_json.workspace = true
 
 # The window backend is per platform: the X11 and Wayland paths carry no weight
 # on Windows.

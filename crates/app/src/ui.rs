@@ -13,6 +13,8 @@ use crate::attach;
 use crate::batch::{self, Batch};
 use crate::columns::{Column, entry_at};
 use crate::detail::{self, Draft, Outcome};
+use crate::import;
+use crate::lookup::{Lookup, State};
 
 /// How long a keystroke waits before the search runs, so a typed word costs one
 /// query rather than one per character.
@@ -147,6 +149,11 @@ pub struct App {
     /// Which theme the window asks the context for, kept here rather than read
     /// back from it so a frame can be drawn without asking.
     theme: ThemePreference,
+    /// Whether the import box has the pane, and what it holds.
+    importing: bool,
+    identifier: String,
+    lookup: Lookup,
+    lookup_state: State,
 }
 
 impl App {
@@ -186,6 +193,10 @@ impl App {
             shift_tab: false,
             refusal: String::new(),
             theme: ThemePreference::System,
+            importing: false,
+            identifier: String::new(),
+            lookup: Lookup::default(),
+            lookup_state: State::Idle,
         }
     }
 
@@ -422,6 +433,13 @@ impl App {
         ui.horizontal(|ui| {
             if ui.button("Open").on_hover_text("Ctrl+O").clicked() {
                 self.ask_for_file();
+            }
+            if ui
+                .add_enabled(self.session.is_some(), egui::Button::new("Import"))
+                .on_hover_text("an entry from a DOI or an arXiv id")
+                .clicked()
+            {
+                self.importing = true;
             }
             ui.separator();
             ui.label("Sort");
@@ -693,6 +711,65 @@ impl App {
         if let Some(session) = &mut self.session {
             session.edited_at(Instant::now());
         }
+    }
+
+    /// Draws the import box, and reads an answer that arrived since the last frame.
+    fn import_box(&mut self, ui: &mut egui::Ui) {
+        if let Some(answer) = self.lookup.read() {
+            self.lookup_state = match answer {
+                Ok(record) => State::Read(Box::new(record)),
+                Err(why) => State::Failed(why),
+            };
+        }
+        let outcome = import::show(
+            ui,
+            &mut self.session,
+            &mut self.identifier,
+            &mut self.lookup_state,
+            &mut self.lookup,
+        );
+        match outcome {
+            import::Outcome::Asking(id) => self.status = format!("Asking for {id}"),
+            import::Outcome::Filed { row, key } => {
+                self.importing = false;
+                self.identifier.clear();
+                self.lookup_state = State::Idle;
+                // The new row is picked, so the pane shows what arrived rather than
+                // leaving the reader to find it in a table it may be sorted away in.
+                self.select(Some(row));
+                self.status = format!("Imported {key}");
+            }
+            import::Outcome::Closed => self.importing = false,
+            import::Outcome::Idle => {}
+        }
+    }
+
+    /// Whether the import box has the pane, for a test reading the window.
+    pub fn importing(&self) -> bool {
+        self.importing
+    }
+
+    /// Opens the import box as pressing the toolbar's button does.
+    pub fn begin_import(&mut self) {
+        self.importing = true;
+    }
+
+    /// Types an identifier into the import box, without asking for it.
+    pub fn type_identifier(&mut self, text: &str) {
+        self.importing = true;
+        self.identifier = text.to_owned();
+    }
+
+    /// What the import box is saying, for a test that cannot wait for a network.
+    pub fn lookup_state(&self) -> &State {
+        &self.lookup_state
+    }
+
+    /// Puts a record in the box as if a service had answered with it, which is how
+    /// the filing half is tested without a request going out.
+    pub fn offer(&mut self, record: citerack_bib::Entry) {
+        self.importing = true;
+        self.lookup_state = State::Read(Box::new(record));
     }
 
     /// Picks every row the table is showing, which is what a batch on the whole
@@ -1144,6 +1221,10 @@ impl App {
             .resizable(true)
             .default_width(340.0)
             .show(ctx, |ui| {
+                if self.importing {
+                    self.import_box(ui);
+                    return;
+                }
                 if self.picking_many() {
                     self.detail_off(ui);
                     return;

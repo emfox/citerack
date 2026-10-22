@@ -15,6 +15,9 @@ What a user can do now that they could not before. Each release names the thing;
 - **One field written across many entries.** `Shift`-click or `Shift`-arrows pick
   a range, `Ctrl+A` the screen; the pane becomes a box asking for a field and a
   value, and the batch is a single `Undo`.
+- **An entry from a DOI or an arXiv id.** `Import` takes the id or the link it is
+  shown at, shows what came back, and files it under a key no entry holds yet. A
+  lookup that fails says why and leaves the library as it was.
 
 ## 0.1.1 - 22 October 2026
 
