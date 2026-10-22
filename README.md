@@ -46,7 +46,7 @@ same question is not reopened.
 
 Every tagged release publishes a Linux binary and a Windows one, each with a
 `.sha256` beside it. The newest is
-[`v0.2.0`](https://github.com/emfox/citerack/releases/latest). Download it and run
+[`v0.2.1`](https://github.com/emfox/citerack/releases/latest). Download it and run
 it; on a Linux desktop nothing has to be installed first, because the binary links
 only `libc`, `libm` and `libgcc_s` and loads the window stack — X11, Wayland, GL,
 Vulkan — from whatever the desktop already has.
