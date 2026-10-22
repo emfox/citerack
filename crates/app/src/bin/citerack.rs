@@ -1,5 +1,10 @@
 //! Command line entry: open a window, or time the engine without one.
 
+// A user who double-clicks the executable gets a window and no console behind it,
+// which is the difference between a program and a program with a black rectangle
+// stuck to it. The options still work from a terminal.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 
