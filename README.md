@@ -13,6 +13,8 @@ built before the first row is drawn, and the window reports both.
 
 ## What it does today
 
+![The window on a library of 15 000 entries](docs/images/window.png)
+
 | | |
 | --- | --- |
 | Reads | BibTeX, including fields it does not model, which survive a save |
@@ -26,7 +28,10 @@ built before the first row is drawn, and the window reports both.
 | Shows | a table with key, type, author, title, year and venue, and a detail pane per entry |
 
 Everything here is measured, and `docs/Performance.md` has the command that
-re-derives each figure.
+re-derives each figure. A library of 134 352 entries, which is a real user's file
+attached to a bug report, opens in 2.85 s:
+
+![A library of 134 352 entries, open in 2.85 s](docs/images/large-library.png)
 
 Bulk editing, importing from a DOI, attachments and a translated interface are on
 the [roadmap](docs/Roadmap.md).
