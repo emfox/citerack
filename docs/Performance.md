@@ -49,6 +49,13 @@ Measured on Linux x86-64, one core of a shared virtual machine, a release build,
 repeating abstract, which is the shape a real library of this size has; the fourth
 row has no repeated word at all.
 
+The core was a shared one, and these are absolute seconds, so they move with the
+host. Re-measured on an AMD EPYC 9754 pinned with `taskset -c 3` — a busier and
+slower core than the one below was taken on — the same four rows read 0.37 s,
+1.28 s, 2.56 s and 4.10 s. The *ratios* hold and the per-entry cost stays flat, so
+the shape of the curve is the claim; a reader comparing two machines should compare
+per-entry cost rather than total seconds.
+
 | Entries | Size | Open, whole chain | Peak memory | Per entry |
 | --- | --- | --- | --- | --- |
 | 15 000 | 11.0 MiB | 0.23 s | 102 MiB | 15 us |
